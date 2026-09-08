@@ -436,7 +436,10 @@ async function boot() {
       ? (await api("/api/shots?subject=" + encodeURIComponent(state.subject))).shots : [];
     render();
   } catch (e) {
-    toast("Can't reach the server — " + e.message, "bad");
+    // A configuration problem is not a connectivity problem, and saying so sends you
+    // looking in the wrong place on a first deploy.
+    const net = /fetch|network|load failed/i.test(e.message);
+    toast(net ? "Can't reach the server — " + e.message : e.message, "bad");
   }
 }
 boot().then(() => { if (state.sealed) { showAsk(); loadTurns(); } });
