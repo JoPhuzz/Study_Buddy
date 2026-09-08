@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "study-buddy", "runtimeExecutable": "./dev-run.sh", "runtimeArgs": [], "port": 8092 }
+  ]
+}

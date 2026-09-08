@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Study Buddy</title>
+  <link rel="stylesheet" href="/static/style.css?v=__BUILD__" />
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span class="dot"></span> Study Buddy</div>
+    <button id="subjectBtn" class="subject" title="Rename this subject">
+      <span id="subjectName">No subject yet</span>
+      <span id="shotBadge" class="badge hidden">0</span>
+    </button>
+    <div class="bar-right">
+      <button id="libraryBtn" class="ghost" title="Everything you've studied">Library</button>
+      <button id="newBtn" class="ghost" title="Start a new subject">New</button>
+      <span id="sync" class="sync" title="Brain sync">●</span>
+    </div>
+  </header>
+
+  <!-- ============ CAPTURE ============ -->
+  <section id="captureView" class="view">
+    <div class="stage">
+      <video id="preview" class="preview" autoplay playsinline muted></video>
+      <div id="previewEmpty" class="preview-empty">
+        <p class="big">Show me something.</p>
+        <p class="hint">Share a window or a tab, then bank a capture each time you're
+          looking at something you want me to know about — page by page, or scrolling
+          down a long one.</p>
+        <button id="shareBtn" class="primary big-btn">Share a window</button>
+        <p class="hint tiny">Studying a web page? Paste its address below instead —
+          I'll read every line rather than squinting at a screenshot.</p>
+      </div>
+    </div>
+
+    <div class="capture-bar">
+      <button id="captureBtn" class="capture-btn" disabled>
+        <span class="cap-label">Capture</span>
+        <span class="cap-key">Space</span>
+      </button>
+      <input id="labelInput" class="label-input" type="text"
+             placeholder="Optional note for this capture — e.g. &quot;pricing, annual&quot;" />
+      <button id="doneBtn" class="done-btn" disabled title="Compact everything captured into the brief">
+        Done — read it all
+      </button>
+    </div>
+
+    <div class="url-row">
+      <input id="urlInput" class="url-input" type="url"
+             placeholder="…or paste a page address to read it properly" />
+      <button id="urlBtn" class="ghost">Fetch</button>
+    </div>
+
+    <div class="shots-head">
+      <span id="shotsTitle">Nothing captured yet</span>
+      <button id="stopBtn" class="ghost hidden">Stop sharing</button>
+    </div>
+    <ol id="shots" class="shots"></ol>
+  </section>
+
+  <!-- ============ ASK ============ -->
+  <section id="askView" class="view hidden">
+    <div class="ask-head">
+      <button id="backToCapture" class="ghost">← Capture more</button>
+      <select id="mode" class="mode-select" title="How to pitch the answer"></select>
+      <button id="briefBtn" class="ghost">Read the brief</button>
+    </div>
+    <div id="staleWarn" class="warn hidden"></div>
+    <main id="chat" class="chat">
+      <div class="empty">
+        <p class="big">Ask me about what you showed me.</p>
+        <p class="hint">I answer from those captures and nothing else. If you didn't
+          show me something, I'll say so rather than guess.</p>
+      </div>
+    </main>
+    <form id="composer" class="composer" autocomplete="off">
+      <input id="question" class="question" type="text"
+             placeholder="What does it say about…?" />
+      <button type="submit" class="primary">Ask</button>
+    </form>
+  </section>
+
+  <!-- ============ overlays ============ -->
+  <div id="sheet" class="sheet hidden">
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <span id="sheetTitle">Brief</span>
+        <button id="sheetClose" class="ghost">✕</button>
+      </div>
+      <div id="sheetBody" class="sheet-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js?v=__BUILD__"></script>
+</body>
+</html>
