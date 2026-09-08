@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Study Buddy — Sign in</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="brand" style="justify-content:center"><span class="dot"></span> Study Buddy</div>
+      <input id="pw" class="label-input" type="password" placeholder="password"
+             autocomplete="current-password" />
+      <div id="err" class="pin-error"></div>
+      <button id="go" class="primary big-btn">Enter</button>
+    </div>
+  </div>
+  <script>
+    const pw = document.getElementById("pw"), err = document.getElementById("err");
+    async function login() {
+      err.textContent = "";
+      try {
+        const r = await fetch("/api/login", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pw.value }),
+        });
+        const d = await r.json();
+        if (d.ok) location.href = "/";
+        else { err.textContent = d.error || "Wrong password."; pw.value = ""; pw.focus(); }
+      } catch (e) { err.textContent = "Can't reach the server — try again."; }
+    }
+    document.getElementById("go").addEventListener("click", login);
+    pw.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+    pw.focus();
+  </script>
+</body>
+</html>
