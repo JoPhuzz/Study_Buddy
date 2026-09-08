@@ -61,6 +61,21 @@ def engine() -> Study:
     return _study
 
 
+def _unconfigured() -> JSONResponse | None:
+    """A 200 saying what is missing, for the read-only calls the page makes on load.
+
+    A fresh Railway service runs before its variables are set, and the first thing the
+    page does is GET /api/state. Letting that raise gives a bare 500 "Internal Server
+    Error", which reads as "the app is broken" when the truth is "you haven't pasted the
+    key in yet" — the single most likely thing to be wrong on a first deploy.
+    """
+    try:
+        engine()
+        return None
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"Not configured yet — {e}"})
+
+
 def load_brain() -> None:
     """Boot: pull the brain from the repo. Containers are ephemeral; this is what makes
     a brief you compacted last week still be there today."""
@@ -261,6 +276,9 @@ async def ask(request: Request):
 # --- subjects, shots, brief ---------------------------------------------------------
 @app.get("/api/state")
 def state():
+    down = _unconfigured()
+    if down is not None:
+        return down
     eng = engine()
     subject = eng.store.current_subject()
     b = eng.store.get_brief(subject) if subject else None
@@ -276,7 +294,8 @@ def state():
 
 @app.get("/api/subjects")
 def subjects():
-    return {"ok": True, "subjects": engine().store.subjects()}
+    down = _unconfigured()
+    return down if down is not None else {"ok": True, "subjects": engine().store.subjects()}
 
 
 @app.post("/api/subject")
