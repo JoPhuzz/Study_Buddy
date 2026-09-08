@@ -205,18 +205,25 @@ class Study:
         if mode.quote_first is not False:
             cached += prompts.CITE
 
-        stale = ""
+        # The brief goes in the CACHED half, not the tail. It is stable for as long as the
+        # subject is sealed, and it is by far the largest thing here — a session is a long
+        # run of questions against one unchanging document, which is exactly the shape
+        # caching pays for. It also carries the prefix over Anthropic's minimum cacheable
+        # length: the instructions alone are ~500 tokens, under the 1024 floor, so before
+        # this the ask path declared a cache breakpoint that could never hit.
+        cached += (f"\n\nTHE BRIEF — subject: {subject}, compacted from "
+                   f"{b.get('n_shots', 0)} capture(s). This is everything you know:\n\n"
+                   f"{b['text']}")
+
+        # Only genuinely per-turn material goes after the breakpoint.
+        tail = ""
         if self.store.get_state(f"stale:{subject}"):
             extra = self.store.shot_count(subject) - int(b.get("n_shots") or 0)
             if extra > 0:
-                stale = (f"\n\nNOTE: {extra} capture(s) have been banked since this brief was "
-                         "compacted and are NOT in it. If the question touches something they "
-                         "might cover, say the brief predates them and they should press Done "
-                         "to fold them in.")
-
-        tail = (f"\n\nTHE BRIEF — subject: {subject}, compacted from "
-                f"{b.get('n_shots', 0)} capture(s). This is everything you know:\n\n"
-                f"{b['text']}{stale}")
+                tail = (f"\n\nNOTE: {extra} capture(s) have been banked since this brief was "
+                        "compacted and are NOT in it. If the question touches something they "
+                        "might cover, say the brief predates them and they should press Done "
+                        "to fold them in.")
 
         history = self.store.turns(subject)[-MAX_HISTORY_TURNS:]
         ans = self.llm.ask(user=question, cached_system=cached, system=tail,

@@ -285,10 +285,22 @@ def test_text_blocks_are_joined_with_a_blank_line_not_welded():
     assert text_of(R()) == "First half:\n\nSecond half."
 
 
-def test_the_stable_half_of_a_prompt_is_marked_for_caching():
+def test_the_brief_rides_in_the_cached_half_of_the_prompt():
+    """A session is a long run of questions against one unchanging document — the shape
+    caching exists for. The instructions alone are ~500 tokens, under Anthropic's 1024
+    floor, so caching them without the brief declares a breakpoint that can never hit."""
     study, _, llm = sealed()
     study.ask("anything?", "Acme pricing")
     call = llm.of_kind("ask")[-1]
-    assert call["cached_system"], "the identity + gate never change within a session"
     assert "ANSWER ONLY FROM WHAT THEY SHOWED YOU" in call["cached_system"]
-    assert "Everything, compacted." in call["system"], "the brief changes; it is the tail"
+    assert "Everything, compacted." in call["cached_system"], "the brief is stable; cache it"
+    assert not call["system"], "nothing per-turn to say when the brief is current"
+
+
+def test_only_per_turn_material_sits_after_the_cache_breakpoint():
+    study, store, llm = sealed()
+    study.capture("Acme pricing", IMG)          # now stale
+    study.ask("anything?", "Acme pricing")
+    call = llm.of_kind("ask")[-1]
+    assert "NOT in it" in call["system"], "the staleness note changes per turn"
+    assert "Everything, compacted." in call["cached_system"]

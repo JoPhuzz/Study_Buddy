@@ -26,9 +26,17 @@ import anthropic
 REQUEST_TIMEOUT_S = 180.0
 
 # $ per million tokens (input, output). Cache writes bill at 1.25x input, reads at 0.1x.
+# Verified against the published table, not recalled — two of these were wrong when
+# written from memory, and reading a capture is the call whose cost decides whether a
+# forty-shot scroll is affordable.
 PRICES: dict[str, tuple[float, float]] = {
-    "claude-opus-5": (15.0, 75.0),
-    "claude-sonnet-5": (3.0, 15.0),
+    "claude-fable-5-1": (10.0, 50.0),
+    "claude-fable-5": (10.0, 50.0),
+    "claude-opus-5": (5.0, 25.0),
+    "claude-opus-4-8": (5.0, 25.0),
+    "claude-opus-4-7": (5.0, 25.0),
+    "claude-opus-4-6": (5.0, 25.0),
+    "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
 }
