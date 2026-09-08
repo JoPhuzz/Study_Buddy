@@ -51,7 +51,20 @@ not the shared snapshot shape the Gaming/Program buddies pass between themselves
 
 ## 5. Cost, so a long session isn't a surprise
 
-Each capture is one vision call (~$0.01 on the deep tier for a dense 1400px page); the
-brief is one text call over all the notes; each question is one text call over the brief,
-with the stable half of the prompt cached. A twenty-capture session lands around
-$0.25–0.35. `/api/usage` and the app's own counter track it per day and all-time.
+Measured on Sonnet 5 against a dense 1400px page, not estimated:
+
+| Call | When | Cost |
+|---|---|---|
+| read a capture | once per press | **$0.006** |
+| compact the brief | once per Done | scales with the notes (~$0.005 for two captures) |
+| a question, first of a session | cache write | **$0.004** |
+| a question, thereafter | cache read | **$0.0012** |
+
+So a twenty-capture session with twenty questions is roughly **$0.20**, and it is the
+*capturing* that dominates, not the asking — questions after the first cost about a
+third of it, because the brief rides in the cached half of the prompt and a session is a
+long run of questions against one unchanging document.
+
+`READ_TIER=fast` cuts the top line by roughly four fifths and is the only lever that
+meaningfully moves the total; it is also the one that trades away accuracy in the place
+you can least afford it. `/api/usage` tracks the real figures per day and all-time.

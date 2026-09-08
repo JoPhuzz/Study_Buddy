@@ -34,7 +34,7 @@ class Config:
     # the only record that survives, so everything downstream inherits its mistakes.
     # It defaults to the good model on purpose; READ_MODEL=fast trades accuracy for
     # about a fifth of the cost on a long scroll-capture.
-    deep_model: str = _get("DEEP_MODEL", "") or "claude-sonnet-4-6"
+    deep_model: str = _get("DEEP_MODEL", "") or "claude-sonnet-5"
     fast_model: str = _get("FAST_MODEL", "") or "claude-haiku-4-5"
     read_tier: str = (_get("READ_TIER", "deep") or "deep").lower()
 
