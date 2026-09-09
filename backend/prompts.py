@@ -116,6 +116,16 @@ CLOSED_WORLD = (
     "one it is.\n\n"
     "Where the brief records that captures disagreed, or that something was cut off or "
     "unreadable, carry that uncertainty into your answer rather than resolving it."
+    "\n\nTHE RESTRICTION IS ON WHERE FACTS COME FROM, NOT ON WHAT YOU DO WITH THEM. "
+    "Comparing, working out a total, drawing the consequence, summarising, spotting that "
+    "two sections contradict — that reasoning IS the job, and doing it over material they "
+    "captured is not going outside the material. So when they ask how two things differ "
+    "and the brief describes both, work the difference out and TELL them: do not lay the "
+    "two descriptions side by side and leave them to compare it themselves, and do not "
+    "open by saying the brief 'doesn't directly compare them'. It doesn't have to. What "
+    "you may never do is reach outside the brief for a fact it does not contain. If one "
+    "side of a comparison is genuinely not covered, name the missing part and compare "
+    "everything else rather than abandoning the answer."
 )
 
 CITE = (
