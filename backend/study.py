@@ -105,14 +105,21 @@ class Study:
                 "note": body, "cost": ans.cost, "n_shots": self.store.shot_count(subject)}
 
     def capture_text(self, subject: str | None, title: str, text: str,
-                     source: str = "") -> dict:
+                     source: str = "", kind: str = "url") -> dict:
         """File fetched page text as a capture. No vision call — the text IS the record,
         and it is a better one than any screenshot of the same page could be."""
         subject = (subject or "").strip() or self.store.current_subject() or title
         subject = self.store.set_current_subject(subject)
-        summary = f"{title}"[:200] if title else (source or "pasted text")[:200]
+        # A banked page needs a summary you can scan. The title alone is fine for a web
+        # page ("Bevel - Blender Manual") and useless for a PDF ("plans.pdf — page 3"),
+        # so where the first line of content adds something, it goes in the label too.
+        first = next((ln.strip() for ln in text.splitlines() if len(ln.strip()) > 3), "")
+        summary = (title or "").strip() or (source or "pasted text")
+        if first and first.lower() not in summary.lower() and summary.lower() not in first.lower():
+            summary = f"{summary} · {first}"
+        summary = summary[:200]
         note = (f"SOURCE: {source}\nTITLE: {title}\n\n{text}").strip()
-        seq = self.store.add_shot(subject, note=note, summary=summary, kind="url",
+        seq = self.store.add_shot(subject, note=note, summary=summary, kind=kind,
                                   source=source)
         self.store.set_state(f"stale:{subject}", "1")
         last = self.store.last_shot(subject) or {}

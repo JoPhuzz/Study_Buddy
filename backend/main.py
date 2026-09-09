@@ -13,11 +13,11 @@ import time
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import fetch, modes, sync
+from . import fetch, files, modes, sync
 from .config import config
 from .llm import LLM, LLMError
 from .store import Store
@@ -237,6 +237,54 @@ async def capture_url(request: Request):
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
     return {"ok": True, **out}
+
+
+@app.post("/api/capture/file")
+async def capture_file(file: UploadFile = File(...), subject: str = Form("")):
+    """Bank a dropped file. A PDF becomes one capture per page, in page order.
+
+    Pages that carry text are banked as text — free, exact, and better than reading a
+    picture of the same words. Only pages with no text layer go through the vision
+    reader, which is why a 40-page manual usually costs nothing to take in.
+    """
+    raw = await file.read()
+    name = file.filename or "upload"
+    try:
+        ex = files.extract(name, raw)
+    except files.FileError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    eng = engine()
+    subject = (subject or "").strip() or eng.store.current_subject() or ""
+    banked, cost, failed = [], 0.0, []
+    t0 = time.time()
+    for piece in ex.pieces:
+        label = f"{name} — {piece.label}" if ex.kind == "pdf" else name
+        try:
+            if piece.is_text:
+                out = eng.capture_text(subject or name, title=label, text=piece.text,
+                                       source=name, kind="file")
+            else:
+                out = eng.capture(subject or None, piece.image, label=label)
+        except (LLMError, ValueError) as e:
+            failed.append(f"{piece.label}: {e}")
+            continue
+        except Exception as e:  # noqa: BLE001
+            failed.append(f"{piece.label}: {e}")
+            continue
+        subject = out["subject"]
+        cost += out.get("cost") or 0.0
+        banked.append({"seq": out["seq"], "summary": out["summary"], "label": piece.label})
+
+    if not banked:
+        return JSONResponse(
+            {"ok": False, "error": "Nothing in that file could be read. "
+                                   + "; ".join(failed[:3])}, status_code=400)
+    print(f"[file] {time.time() - t0:.1f}s {name!r} {len(banked)} piece(s) ${cost:.4f}")
+    return {"ok": True, "subject": subject, "kind": ex.kind, "banked": banked,
+            "n_banked": len(banked), "cost": round(cost, 5),
+            "notes": ex.notes + ([f"{len(failed)} piece(s) failed"] if failed else []),
+            "n_shots": eng.store.shot_count(subject)}
 
 
 @app.post("/api/seal")

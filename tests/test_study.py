@@ -13,12 +13,23 @@ import pathlib
 
 import pytest
 
-from backend import prompts
+from backend import files, prompts
 from backend.store import Store
 from backend.study import NoBrief, Study, _split_summary
 from tests.fakes import FakeLLM
 
 IMG = b"\xff\xd8\xff\xe0fake-jpeg"
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
+
+
+@pytest.fixture(scope="session")
+def text_pdf() -> bytes:
+    return (FIXTURES / "text.pdf").read_bytes()
+
+
+@pytest.fixture(scope="session")
+def scan_pdf() -> bytes:
+    return (FIXTURES / "scan.pdf").read_bytes()
 BACKEND = pathlib.Path(__file__).resolve().parent.parent / "backend"
 
 
@@ -304,3 +315,87 @@ def test_only_per_turn_material_sits_after_the_cache_breakpoint():
     call = llm.of_kind("ask")[-1]
     assert "NOT in it" in call["system"], "the staleness note changes per turn"
     assert "Everything, compacted." in call["cached_system"]
+
+
+# ============ uploaded files ============
+def test_a_text_file_needs_no_model_call_to_be_read():
+    """The rule the whole module turns on: if the bytes already carry words, lift them.
+    Reading a picture of the same words costs a call and can misread a digit."""
+    ex = files.extract("notes.md", b"# Heading\n\nTier A costs $10 per month.\n")
+    assert ex.kind == "text" and len(ex.pieces) == 1
+    assert ex.pieces[0].is_text and "$10" in ex.pieces[0].text
+
+
+def test_an_image_is_banked_for_the_vision_reader():
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+    ex = files.extract("shot.png", png)
+    assert ex.kind == "image" and ex.pieces[0].image == png
+    assert not ex.pieces[0].is_text
+
+
+def test_bytes_beat_the_extension():
+    """A PDF saved as .txt is still a PDF, and a screenshot named .pdf is still an image."""
+    assert files._sniff("report.txt", b"%PDF-1.4 rest") == "pdf"
+    assert files._sniff("scan.pdf", b"\x89PNG\r\n\x1a\n" + b"\x00" * 20) == "image"
+
+
+def test_json_is_pretty_printed_so_its_structure_survives_reading():
+    ex = files.extract("cfg.json", b'{"tier":"team","seats":10}')
+    assert "\n" in ex.pieces[0].text, "one long line reads far worse than indented JSON"
+    assert '"seats": 10' in ex.pieces[0].text
+
+
+def test_an_unreadable_type_says_what_it_can_take():
+    with pytest.raises(files.FileError) as e:
+        files.extract("clip.mov", b"\x00\x00\x00\x20ftypqt  " + b"\x00" * 40)
+    assert "PDF" in str(e.value) and "capture" in str(e.value)
+
+
+def test_an_oversized_file_is_refused_with_the_limit_and_a_way_forward():
+    with pytest.raises(files.FileError) as e:
+        files.extract("huge.pdf", b"%PDF-" + b"x" * files.MAX_UPLOAD_BYTES)
+    assert "MB" in str(e.value) and "section" in str(e.value)
+
+
+def test_an_empty_file_is_refused():
+    with pytest.raises(files.FileError):
+        files.extract("nothing.txt", b"")
+
+
+def test_a_pdf_with_a_text_layer_becomes_one_text_capture_per_page(text_pdf):
+    """Page order is load-bearing — it is what lets the reader treat page 4 as following
+    page 3 rather than as a new document."""
+    ex = files.extract("plans.pdf", text_pdf)
+    assert ex.kind == "pdf"
+    assert [p.label for p in ex.pieces] == ["page 1", "page 2"]
+    assert all(p.is_text for p in ex.pieces), "a text layer must never cost a model call"
+    assert "Starter $9" in ex.pieces[0].text
+    assert "Overage" in ex.pieces[1].text
+
+
+def test_a_scanned_pdf_falls_back_to_the_page_image_and_says_it_did(scan_pdf):
+    ex = files.extract("scan.pdf", scan_pdf)
+    assert len(ex.pieces) == 1 and not ex.pieces[0].is_text
+    assert ex.pieces[0].image[:2] in (b"\xff\xd8", b"\x89P"), "a real image blob"
+    assert any("no text layer" in n for n in ex.notes), "the extra cost must be visible"
+
+
+def test_a_long_pdf_is_capped_and_says_so(text_pdf):
+    ex = files.extract("plans.pdf", text_pdf, max_pages=1)
+    assert len(ex.pieces) == 1
+    assert any("only the first 1" in n for n in ex.notes)
+
+
+def test_uploaded_pages_bank_through_the_ordinary_capture_path(text_pdf):
+    """However a page arrives, it lands in the same shot list, gets a sequence number and
+    can be binned — the closed world stays auditable."""
+    study, store, llm = build()
+    ex = files.extract("plans.pdf", text_pdf)
+    for piece in ex.pieces:
+        study.capture_text("Nimbus", title=f"plans.pdf — {piece.label}",
+                           text=piece.text, source="plans.pdf")
+    shots = store.shots("Nimbus")
+    assert [s["seq"] for s in shots] == [1, 2]
+    assert not llm.of_kind("read"), "text pages cost nothing to take in"
+    study.seal("Nimbus")
+    assert "Starter $9" in llm.of_kind("brief")[0]["user"]
