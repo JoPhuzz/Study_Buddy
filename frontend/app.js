@@ -261,6 +261,16 @@ async function ask(q) {
     const d = await post("/api/ask", { question: q, subject: state.subject });
     thinking.classList.remove("thinking");
     setBubble(thinking, d.answer);
+    if (d.truncated) {
+      // It ran out of room even after the shorter-answer retry. Never leave this
+      // implicit — a reply cut off mid-word reads as a complete thought if you don't
+      // happen to notice the missing full stop.
+      const cut = el("div", "cut-note",
+        `⚠ Cut off — ${d.mode} mode caps the answer length. Ask for the rest, or switch `
+        + `to Summary or Compare for a longer one.`);
+      thinking.appendChild(cut);
+      chat.scrollTop = chat.scrollHeight;
+    }
   } catch (e) {
     thinking.classList.remove("thinking");
     thinking.classList.add("err");

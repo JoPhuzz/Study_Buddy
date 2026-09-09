@@ -60,11 +60,19 @@ MODES: dict[str, Mode] = {
         ),
     ),
     "direct": Mode(
-        name="Direct", max_tokens=180, plain=True, quote_first=False,
+        # 180 was a guillotine, not a style: a two-way comparison could not fit, so the
+        # answer was cut mid-word and the shorter-answer retry had no room either. The
+        # persona is what keeps Direct short; this is only a backstop.
+        name="Direct", max_tokens=450, plain=True, quote_first=False,
         persona=(
-            "DIRECT MODE — facts only. Override any instruction to be warm or add "
-            "personality. The answer from the brief, or \"not in what you showed me\". "
-            "No preamble, no hedging, no follow-up questions."
+            "DIRECT MODE — facts only, and SHORT. Override any instruction to be warm or "
+            "add personality. The answer from the brief, or \"not in what you showed me\". "
+            "No preamble, no hedging, no follow-up questions.\n\n"
+            "Four lines at most. If the honest answer has more to it than that — a "
+            "comparison with many dimensions, a long list — give the points that matter "
+            "most and end with one line saying what else is in there, so they can ask for "
+            "it or switch to Compare. Never start something you cannot finish in the "
+            "space: a complete short answer is the whole point of this mode."
         ),
     ),
 }

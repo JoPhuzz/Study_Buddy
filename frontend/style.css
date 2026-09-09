@@ -208,3 +208,8 @@ button { font: inherit; cursor: pointer; border-radius: var(--radius); }
   padding: 34px 48px; font-size: 19px; font-weight: 650;
   background: var(--panel); color: var(--ink);
 }
+
+.cut-note {
+  margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--warn);
+  color: var(--warn); font-size: 13px;
+}

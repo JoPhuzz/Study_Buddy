@@ -399,3 +399,22 @@ def test_uploaded_pages_bank_through_the_ordinary_capture_path(text_pdf):
     assert not llm.of_kind("read"), "text pages cost nothing to take in"
     study.seal("Nimbus")
     assert "Starter $9" in llm.of_kind("brief")[0]["user"]
+
+
+def test_reasoning_over_the_material_is_in_scope():
+    """Asked how two things differ, it listed each and left him to compare them himself,
+    opening with "the brief doesn't directly compare them". Reading the gate that way
+    makes it a worse reader, not a safer one: the difference was derivable from what he
+    had captured, and stating it is reporting, not importing."""
+    assert "THE RESTRICTION IS ON WHERE FACTS COME FROM" in prompts.CLOSED_WORLD
+    assert "work the difference out and TELL them" in prompts.CLOSED_WORLD
+    # ...while the actual restriction is untouched
+    assert "may never do is reach outside the brief" in prompts.CLOSED_WORLD
+
+
+def test_direct_mode_can_hold_a_complete_short_answer():
+    """180 tokens could not fit a two-way comparison, so the reply was cut mid-word and
+    the shorter-answer retry had no room either. Terseness is the persona's job."""
+    from backend.modes import MODES
+    assert MODES["direct"].max_tokens >= 400
+    assert "facts only" in MODES["direct"].persona.lower()

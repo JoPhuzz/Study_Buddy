@@ -95,10 +95,48 @@ def text_of(resp) -> str:
     return "\n\n".join(p for p in parts if p).strip()
 
 
+# Sonnet 5 runs adaptive thinking when `thinking` is omitted, and thinking is billed out
+# of the SAME max_tokens as the answer. That makes every mode's budget mean "answer
+# length minus however much the model decided to think" — invisibly, and only on the hard
+# questions, which are exactly the ones you wanted a full answer to. A comparison over an
+# 18k-character brief spent all 450 tokens and came back cut off mid-sentence; a tighter
+# budget came back as thinking with no answer attached at all.
+#
+# Here the budget should mean the answer, so thinking is off. (The documented misbehaviour
+# with thinking disabled — tool calls written into visible text — is an Opus 5 problem,
+# and this app has no tools at all.) A model that rejects the parameter is remembered and
+# retried without it.
+_NO_THINKING = {"type": "disabled"}
+_thinking_unsupported: set[str] = set()
+
+
+def _is_thinking_param_error(exc) -> bool:
+    msg = (getattr(exc, "message", None) or str(exc)).lower()
+    return "thinking" in msg and ("unsupported" in msg or "not supported" in msg
+                                 or "invalid" in msg or "unexpected" in msg)
+
+
+def _create(client, kwargs: dict):
+    """One request, retrying without the thinking parameter if this model won't take it."""
+    model = kwargs.get("model", "")
+    if model in _thinking_unsupported:
+        return client.messages.create(**kwargs)
+    try:
+        return client.messages.create(**dict(kwargs, thinking=_NO_THINKING))
+    except anthropic.APIError as exc:
+        if not _is_thinking_param_error(exc):
+            raise
+        _thinking_unsupported.add(model)
+        return client.messages.create(**kwargs)
+
+
 _TOO_LONG = (
     "\n\nYour previous attempt ran past the space available and was cut off mid-sentence. "
-    "Give the SAME answer completely but more concisely — fewer or shorter points, no "
-    "preamble — and make sure the final sentence is finished."
+    "Give the SAME answer in ABOUT HALF the length and make sure the final sentence is "
+    "finished. Keep every fact that changes the answer; cut the elaboration, the examples "
+    "and the caveats. Merge related points into one line rather than listing them "
+    "separately, and drop any preamble entirely. Finishing matters more than completeness: "
+    "a short whole answer beats a long one that stops mid-sentence."
 )
 
 
@@ -150,7 +188,7 @@ class LLM:
 
         kwargs = dict(model=used, system=sys_param, messages=messages, max_tokens=max_tokens)
         try:
-            resp = self.client.messages.create(**kwargs)
+            resp = _create(self.client, kwargs)
             truncated = getattr(resp, "stop_reason", "") == "max_tokens"
             if truncated and text_of(resp):
                 resp = self._retry_shorter(kwargs, resp)
@@ -191,7 +229,7 @@ class LLM:
         else:
             retry["system"] = (sysv or "") + _TOO_LONG
         try:
-            second = self.client.messages.create(**retry)
+            second = _create(self.client, retry)
         except anthropic.APIError:
             return first
         return second if text_of(second) else first
