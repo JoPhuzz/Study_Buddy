@@ -606,3 +606,20 @@ def test_no_captions_says_what_to_do_instead(monkeypatch):
     with pytest.raises(fetch.FetchError) as e:
         fetch.youtube("https://youtu.be/dQw4w9WgXcQ")
     assert "capture the video's page" in str(e.value)
+
+
+def test_compaction_is_told_to_keep_locators():
+    """47,000 characters of timestamped transcript compacted to a 12,600-character brief
+    with ZERO timestamps left in it — so "where in the video does he say that?" had no
+    answer. Locators are the only way back to the source, and they cost almost nothing
+    to keep."""
+    assert "KEEP THE LOCATORS" in prompts.BRIEF
+    assert "timestamp like" in prompts.BRIEF
+    assert "stitching is about removing repetition, not about removing the map" in prompts.BRIEF
+
+
+def test_compaction_is_told_it_has_room():
+    """That brief used 39% of the tokens it was allowed. It compressed because nothing
+    told it not to, not because it ran out of space."""
+    assert "USE THE ROOM YOU HAVE" in prompts.BRIEF
+    assert "a short brief is a lossy one" in prompts.BRIEF
