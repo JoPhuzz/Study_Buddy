@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import threading
 import time
 from pathlib import Path
@@ -27,6 +28,21 @@ ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 DATA = Path(config.data_dir).expanduser()
 BUILD = str(int(time.time()))
+
+
+def commit_sha() -> str:
+    """The deployed git commit, so "is my fix actually live?" is answerable from outside.
+
+    Without it the only signal was BUILD, a process-start timestamp — which answers "when
+    did this container boot", not "what is it running". Working the second out from the
+    first means comparing against GitHub's push times by hand, and getting it wrong is
+    silent. Railway injects the sha; the other names cover the platforms that don't.
+    """
+    for var in ("RAILWAY_GIT_COMMIT_SHA", "GIT_COMMIT_SHA", "SOURCE_COMMIT"):
+        sha = os.environ.get(var, "").strip()
+        if sha:
+            return sha[:12]
+    return ""
 
 app = FastAPI(title=config.app_name)
 
@@ -190,7 +206,7 @@ def health():
                        "access_password_set": bool(config.access_password),
                        "knowledge_token_set": bool(config.knowledge_token),
                        "knowledge_subpath": config.knowledge_subpath,
-                       "build": BUILD},
+                       "commit": commit_sha(), "build": BUILD},
             "sync": _sync.status(), "boot": _boot}
 
 
