@@ -243,13 +243,39 @@ async def capture_url(request: Request):
     """Bank a page you named. Better than a screenshot for anything text-heavy: every
     line, in order, nothing lost at the fold."""
     body = await request.json()
+    url = (body.get("url") or "").strip()
+    eng = engine()
+    subject = (body.get("subject") or "").strip() or eng.store.current_subject() or ""
+
+    # A YouTube link goes to its transcript. Scraping the page itself gets you the
+    # chrome and none of the talking, and the transcript carries timestamps, so
+    # "where does it say that" has an answer.
+    if fetch.youtube_id(url):
+        try:
+            title, segments = fetch.youtube(url)
+        except fetch.FetchError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+        banked, t0 = [], time.time()
+        for label, text in segments:
+            piece = f"{title} — {label}" if len(segments) > 1 else title
+            try:
+                out = eng.capture_text(subject or title, title=piece, text=text,
+                                       source=url, kind="video")
+            except Exception as e:  # noqa: BLE001
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
+            subject = out["subject"]
+            banked.append({"seq": out["seq"], "summary": out["summary"], "label": label})
+        print(f"[youtube] {time.time() - t0:.1f}s {title!r} {len(banked)} segment(s)")
+        return {"ok": True, "subject": subject, "kind": "video", "banked": banked,
+                "n_banked": len(banked), "cost": 0.0, "notes": [],
+                "n_shots": eng.store.shot_count(subject)}
+
     try:
-        title, text = fetch.fetch(body.get("url") or "")
+        title, text = fetch.fetch(url)
     except fetch.FetchError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
     try:
-        out = engine().capture_text(body.get("subject"), title, text,
-                                    source=(body.get("url") or "").strip())
+        out = eng.capture_text(subject or None, title, text, source=url)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
     return {"ok": True, **out}

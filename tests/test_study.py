@@ -13,7 +13,7 @@ import pathlib
 
 import pytest
 
-from backend import files, prompts
+from backend import fetch, files, prompts
 from backend.store import Store
 from backend.study import NoBrief, Study, _split_summary
 from tests.fakes import FakeLLM
@@ -527,3 +527,82 @@ def test_health_reports_the_deployed_commit(monkeypatch):
     assert main.commit_sha() == "deadbeefcafe"
     monkeypatch.delenv("SOURCE_COMMIT")
     assert main.commit_sha() == "", "absent is empty, never a fabricated value"
+
+
+# ============ YouTube ============
+@pytest.mark.parametrize("url", [
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://youtu.be/dQw4w9WgXcQ?t=42",
+    "https://m.youtube.com/watch?si=trackingjunk&v=dQw4w9WgXcQ",
+    "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    "https://www.youtube.com/live/dQw4w9WgXcQ",
+])
+def test_the_video_id_survives_real_share_urls(url):
+    """Nobody pastes the canonical form. Mobile links put tracking params before `v=`."""
+    assert fetch.youtube_id(url) == "dQw4w9WgXcQ"
+
+
+@pytest.mark.parametrize("url", [
+    "https://docs.blender.org/manual/",
+    "https://vimeo.com/12345678",
+    "not a url at all",
+])
+def test_a_non_youtube_link_is_left_to_the_page_fetcher(url):
+    assert fetch.youtube_id(url) is None
+
+
+def _fake_snips(seconds: int, every: int = 5):
+    return [(float(t), f"word at {t}") for t in range(0, seconds, every)]
+
+
+def test_a_short_video_stays_one_capture(monkeypatch):
+    monkeypatch.setattr(fetch, "_snippets", lambda vid: _fake_snips(300))
+    monkeypatch.setattr(fetch, "_youtube_title", lambda vid: "A Short Talk — Someone")
+    title, segments = fetch.youtube("https://youtu.be/dQw4w9WgXcQ")
+    assert title == "A Short Talk — Someone"
+    assert len(segments) == 1 and segments[0][0] == "transcript"
+
+
+def test_a_long_video_becomes_several_captures_labelled_by_time(monkeypatch):
+    """The same treatment a PDF gets. The shot list stays navigable, and a section you
+    don't care about can be binned without re-fetching the rest."""
+    monkeypatch.setattr(fetch, "_snippets", lambda vid: _fake_snips(3600))
+    monkeypatch.setattr(fetch, "_youtube_title", lambda vid: "A Long Talk")
+    _, segments = fetch.youtube("https://youtu.be/dQw4w9WgXcQ")
+    assert len(segments) == 6, "an hour at ten minutes a segment"
+    assert segments[0][0].startswith("0:00–")
+    assert "–" in segments[-1][0]
+    joined = " ".join(s[1] for s in segments)
+    assert "word at 0" in joined and "word at 3595" in joined, "nothing dropped at a seam"
+
+
+def test_timestamps_are_kept_so_a_quote_can_be_found_again(monkeypatch):
+    """"Where does it say that?" is a question people actually ask of a video, and "at
+    12:40" is worth far more than the same sentence with no way back to it."""
+    monkeypatch.setattr(fetch, "_snippets", lambda vid: _fake_snips(120))
+    monkeypatch.setattr(fetch, "_youtube_title", lambda vid: "T")
+    _, segments = fetch.youtube("https://youtu.be/dQw4w9WgXcQ")
+    text = segments[0][1]
+    assert text.startswith("[0:00]")
+    assert "[1:00]" in text
+    assert text.count("[") < 25, "a stamp every 30s, not on every caption line"
+
+
+def test_an_hour_long_video_stamps_with_hours(monkeypatch):
+    monkeypatch.setattr(fetch, "_snippets", lambda vid: _fake_snips(7200))
+    monkeypatch.setattr(fetch, "_youtube_title", lambda vid: "T")
+    _, segments = fetch.youtube("https://youtu.be/dQw4w9WgXcQ")
+    assert any("1:00:00" in s[1] for s in segments), "past an hour, h:mm:ss"
+
+
+def test_no_captions_says_what_to_do_instead(monkeypatch):
+    def boom(vid):
+        raise fetch.FetchError(
+            "Couldn't get a transcript for that video — captions may be turned off, or "
+            "YouTube blocked the request. If it's your own recording, paste the text "
+            "instead; otherwise capture the video's page from your screen.")
+    monkeypatch.setattr(fetch, "_snippets", boom)
+    with pytest.raises(fetch.FetchError) as e:
+        fetch.youtube("https://youtu.be/dQw4w9WgXcQ")
+    assert "capture the video's page" in str(e.value)
