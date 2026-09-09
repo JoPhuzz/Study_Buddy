@@ -157,11 +157,18 @@ function render() {
     mid.appendChild(el("div", "shot-sum", s.summary || "…"));
     if (s.label) mid.appendChild(el("div", "shot-label", "“" + s.label + "”"));
     if (s.source && s.kind !== "screen") mid.appendChild(el("div", "shot-label", s.source));
+    if (s.edited) mid.appendChild(el("div", "shot-edited", "✎ corrected by you"));
     li.appendChild(mid);
     if (!s.pending) {
+      if (s.id) {
+        const ed = el("button", "ghost tiny-btn", "✎");
+        ed.title = "Read and correct what was recorded from this capture";
+        ed.addEventListener("click", (ev) => { ev.stopPropagation(); editShot(s); });
+        li.appendChild(ed);
+      }
       const b = el("button", "ghost tiny-btn", "✕");
       b.title = "Bin this capture";
-      b.addEventListener("click", () => dropShot(s, i));
+      b.addEventListener("click", (ev) => { ev.stopPropagation(); dropShot(s, i); });
       li.appendChild(b);
     }
     list.appendChild(li);
@@ -300,6 +307,82 @@ $("sheet").addEventListener("click", (e) => {
   if (e.target === $("sheet")) $("sheet").classList.add("hidden");
 });
 
+// Editing is not a hole in the closed world — you were the one looking at the screen,
+// so you know things the reader never could. Corrections are stamped so the brief can
+// still be audited afterwards.
+function editorSheet(title, opts) {
+  sheet(title, (body) => {
+    if (opts.hint) body.appendChild(el("p", "hint", opts.hint));
+    let summaryEl = null;
+    if (opts.summary !== undefined) {
+      body.appendChild(el("label", "edit-label", "Summary — the line in the list"));
+      summaryEl = el("input", "label-input");
+      summaryEl.type = "text";
+      summaryEl.value = opts.summary || "";
+      body.appendChild(summaryEl);
+    }
+    body.appendChild(el("label", "edit-label", opts.bodyLabel || "The record"));
+    const area = el("textarea", "edit-area");
+    area.value = opts.text || "";
+    body.appendChild(area);
+    const row = el("div", "edit-actions");
+    const save = el("button", "primary", "Save");
+    const cancel = el("button", "ghost", "Cancel");
+    cancel.addEventListener("click", () => $("sheet").classList.add("hidden"));
+    save.addEventListener("click", async () => {
+      save.disabled = true; save.textContent = "Saving…";
+      try {
+        await opts.onSave(area.value, summaryEl ? summaryEl.value : undefined);
+        $("sheet").classList.add("hidden");
+      } catch (e) {
+        toast(e.message, "bad");
+        save.disabled = false; save.textContent = "Save";
+      }
+    });
+    row.appendChild(save); row.appendChild(cancel);
+    body.appendChild(row);
+    area.focus();
+  });
+}
+
+function editShot(shot) {
+  editorSheet(`Capture #${shot.seq}`, {
+    hint: "This is the only record of that capture — the brief is rebuilt from it, so a "
+        + "correction here is the durable one. Press Done afterwards to fold it in.",
+    summary: shot.summary,
+    bodyLabel: "What was recorded",
+    text: shot.note || "",
+    onSave: async (note, summary) => {
+      await api("/api/shots/" + shot.id, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note, summary }),
+      });
+      toast(`Capture #${shot.seq} corrected — press Done to fold it into the brief.`, "good");
+      state.stale = true;
+      await refreshShots();
+    },
+  });
+}
+
+async function editBrief() {
+  const d = await api("/api/brief?subject=" + encodeURIComponent(state.subject || ""));
+  if (!d.brief) { toast("Nothing sealed yet.", "bad"); return; }
+  editorSheet("Edit brief — " + (state.subject || ""), {
+    hint: "Answers come from this text and nothing else. It survives the next Done — "
+        + "compaction is told to carry forward what new captures don't change — but "
+        + "correcting the capture it came from is the more durable fix.",
+    bodyLabel: "The brief",
+    text: d.brief.text,
+    onSave: async (text) => {
+      await api("/api/brief", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, subject: state.subject }),
+      });
+      toast("Brief updated.", "good");
+    },
+  });
+}
+
 async function showBrief() {
   const d = await api("/api/brief?subject=" + encodeURIComponent(state.subject || ""));
   sheet("Brief — " + (state.subject || ""), (body) => {
@@ -313,6 +396,9 @@ async function showBrief() {
       pre.appendChild(el("div", cls, line.replace(/^#+\s*/, "").replace(/^[-*]\s*/, "• ")));
     });
     body.appendChild(pre);
+    const edit = el("button", "ghost", "✎ Edit this brief");
+    edit.addEventListener("click", () => editBrief().catch((e) => toast(e.message, "bad")));
+    body.appendChild(el("div", "edit-actions")).appendChild(edit);
   });
 }
 

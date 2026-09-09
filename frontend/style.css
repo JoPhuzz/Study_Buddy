@@ -213,3 +213,18 @@ button { font: inherit; cursor: pointer; border-radius: var(--radius); }
   margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--warn);
   color: var(--warn); font-size: 13px;
 }
+
+/* ---- editing a capture or the brief ---- */
+.edit-label {
+  display: block; margin: 14px 0 6px; font-size: 13px; color: var(--ink-dim);
+  font-weight: 600;
+}
+.edit-area {
+  width: 100%; min-height: 46vh; resize: vertical;
+  background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.edit-area:focus { outline: none; border-color: var(--accent); }
+.edit-actions { display: flex; gap: 10px; margin-top: 14px; }
+.shot-edited { color: var(--accent); font-size: 12px; }

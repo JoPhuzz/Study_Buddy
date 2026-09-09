@@ -390,6 +390,49 @@ def shots(subject: str = ""):
     return {"ok": True, "subject": subject, "shots": eng.store.shots(subject)}
 
 
+@app.patch("/api/shots/{shot_id}")
+async def edit_shot(shot_id: int, request: Request):
+    """Correct a capture's record by hand.
+
+    Not a hole in the closed world — the closed world working. Whoever is typing was the
+    one looking at the screen, so they know things the reader never could: when the note
+    says a label was too small to read, they can just read it. The correction is stamped
+    so the brief can still be audited afterwards.
+    """
+    body = await request.json()
+    eng = engine()
+    row = eng.store.update_shot(shot_id, note=body.get("note"),
+                                summary=body.get("summary"))
+    if row is None:
+        return JSONResponse({"ok": False, "error": "No such capture, or nothing to change."},
+                            status_code=404)
+    subject = eng.store.current_subject()
+    if subject:
+        eng.store.set_state(f"stale:{subject}", "1")   # the brief predates the correction
+    return {"ok": True, "shot": row}
+
+
+@app.patch("/api/brief")
+async def edit_brief(request: Request):
+    """Edit the brief in place, for a fix that isn't worth re-sealing over.
+
+    It survives the next Done: compaction is handed the existing brief and told to carry
+    forward everything the new captures don't change. Correcting the underlying capture
+    is still the more durable fix, because that is the source the brief is rebuilt from.
+    """
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if len(text) < 20:
+        return JSONResponse({"ok": False, "error": "That's too short to be the brief."},
+                            status_code=400)
+    eng = engine()
+    subject = (body.get("subject") or "").strip() or eng.store.current_subject() or ""
+    if not eng.store.update_brief(subject, text):
+        return JSONResponse({"ok": False, "error": "Nothing sealed for that subject yet."},
+                            status_code=404)
+    return {"ok": True, "subject": subject, "brief": eng.store.get_brief(subject)}
+
+
 @app.delete("/api/shots/{shot_id}")
 def drop_shot(shot_id: int):
     eng = engine()

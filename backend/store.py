@@ -34,14 +34,16 @@ CREATE TABLE IF NOT EXISTS shots (
     source     TEXT,                             -- the URL, for kind='url'
     label      TEXT,                             -- optional caption you typed
     summary    TEXT NOT NULL DEFAULT '',         -- one line, for the shot list
-    note       TEXT NOT NULL                     -- the full reading; the only record
+    note       TEXT NOT NULL,                    -- the full reading; the only record
+    edited     REAL                              -- when a human corrected it, if ever
 );
 CREATE INDEX IF NOT EXISTS idx_shots_subject_seq ON shots(subject_id, seq);
 CREATE TABLE IF NOT EXISTS briefs (
     subject_id INTEGER PRIMARY KEY REFERENCES subjects(id),
     text       TEXT NOT NULL,
     updated    REAL NOT NULL,
-    n_shots    INTEGER NOT NULL DEFAULT 0
+    n_shots    INTEGER NOT NULL DEFAULT 0,
+    edited     REAL                              -- when a human corrected it, if ever
 );
 CREATE TABLE IF NOT EXISTS turns (
     id         INTEGER PRIMARY KEY,
@@ -76,7 +78,21 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns to a database that already exists. Call with _lock held.
+
+        The brain in the repo predates these, and it is not disposable — it is the only
+        copy of what someone captured. CREATE TABLE IF NOT EXISTS silently leaves an old
+        table alone, so new columns need adding by hand.
+        """
+        for table, column, decl in (("shots", "edited", "REAL"),
+                                    ("briefs", "edited", "REAL")):
+            have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in have:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
     def close(self) -> None:
         with self._lock:
@@ -181,7 +197,7 @@ class Store:
             if sid is None:
                 return []
             rows = self._conn.execute(
-                "SELECT id, seq, ts, kind, source, label, summary, note FROM shots"
+                "SELECT id, seq, ts, kind, source, label, summary, note, edited FROM shots"
                 " WHERE subject_id = ? ORDER BY seq", (sid,)).fetchall()
         return [dict(r) for r in rows]
 
@@ -199,6 +215,50 @@ class Store:
             row = self._conn.execute(
                 "SELECT COUNT(*) AS c FROM shots WHERE subject_id = ?", (sid,)).fetchone()
         return row["c"] if row else 0
+
+    def update_shot(self, shot_id: int, note: str | None = None,
+                    summary: str | None = None, now: float | None = None) -> dict | None:
+        """Correct a capture's record by hand.
+
+        This is not a hole in the closed world — it is the closed world working. The
+        person typing was the one looking at the screen, so they are a source the reader
+        never had: when the note says a label was too small to read, they can simply read
+        it. What matters is that the correction is VISIBLE, which is why it is stamped.
+        """
+        now = time.time() if now is None else now
+        sets, args = [], []
+        if note is not None and note.strip():
+            sets.append("note = ?"); args.append(note.strip())
+        if summary is not None:
+            sets.append("summary = ?"); args.append(summary.strip()[:200])
+        if not sets:
+            return None
+        sets.append("edited = ?"); args.append(now)
+        args.append(int(shot_id))
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE shots SET {', '.join(sets)} WHERE id = ?", args)
+            if not cur.rowcount:
+                return None
+            row = self._conn.execute(
+                "SELECT id, seq, kind, source, label, summary, note, edited FROM shots"
+                " WHERE id = ?", (int(shot_id),)).fetchone()
+            self._conn.commit()
+        return dict(row) if row else None
+
+    def update_brief(self, subject: str, text: str, now: float | None = None) -> bool:
+        """Edit the brief in place. Survives a re-seal because compaction is handed the
+        existing brief and told to carry forward what the new captures don't change."""
+        now = time.time() if now is None else now
+        with self._lock:
+            sid = self._sid(subject)
+            if sid is None:
+                return False
+            cur = self._conn.execute(
+                "UPDATE briefs SET text = ?, updated = ?, edited = ? WHERE subject_id = ?",
+                (text.strip(), now, now, sid))
+            self._conn.commit()
+        return cur.rowcount > 0
 
     def drop_shot(self, shot_id: int) -> bool:
         """Bin one capture (a mis-fire, a stray desktop). Sequence numbers are NOT
@@ -224,7 +284,7 @@ class Store:
             if sid is None:
                 return None
             row = self._conn.execute(
-                "SELECT text, updated, n_shots FROM briefs WHERE subject_id = ?",
+                "SELECT text, updated, n_shots, edited FROM briefs WHERE subject_id = ?",
                 (sid,)).fetchone()
         return dict(row) if row else None
 
