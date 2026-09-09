@@ -5,3 +5,4 @@ anthropic
 trafilatura
 pypdf
 python-multipart
+youtube-transcript-api

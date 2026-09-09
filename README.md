@@ -48,6 +48,10 @@ model can talk itself out of.
 - **Paste a URL instead** — for a web page this is strictly better than a screenshot:
   every line, in order, nothing lost at the fold, no OCR mistakes on a dense table, no
   twenty presses to get to the bottom. Screenshots are for programs; URLs are for pages.
+- **Paste a YouTube link** — it takes the transcript, not the page, split into
+  ten-minute captures labelled by time. Timestamps are kept in the text, so "where does
+  he explain the call stack?" comes back as "4:21 to 7:41" rather than a paraphrase with
+  no way back to it. Costs nothing: it is text, so no vision call.
 - **Drop a file on it** — PDF, image (PNG/JPEG/GIF/WebP) or text (txt, md, csv, json…).
   A PDF becomes one capture per page, in page order, so the reader treats page 4 as
   following page 3. One rule decides how each is handled: **if the file already carries
