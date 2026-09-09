@@ -512,3 +512,18 @@ def test_an_older_brain_gains_the_edited_columns():
     assert "edited" in {r[1] for r in store._conn.execute("PRAGMA table_info(shots)")}
     assert "edited" in {r[1] for r in store._conn.execute("PRAGMA table_info(briefs)")}
     assert store.shots("Kept")[0]["note"] == "the old note", "existing data must survive"
+
+
+def test_health_reports_the_deployed_commit(monkeypatch):
+    """"Is my fix live?" has to be answerable from outside without the password. Without
+    this, the only signal was a process-start timestamp — which answers when the container
+    booted, not what it is running, and working one out from the other by hand is exactly
+    the kind of silent guess this app exists to avoid."""
+    from backend import main
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "9398904abcdef1234567")
+    assert main.commit_sha() == "9398904abcde"
+    monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA")
+    monkeypatch.setenv("SOURCE_COMMIT", "deadbeefcafe0000")
+    assert main.commit_sha() == "deadbeefcafe"
+    monkeypatch.delenv("SOURCE_COMMIT")
+    assert main.commit_sha() == "", "absent is empty, never a fabricated value"
