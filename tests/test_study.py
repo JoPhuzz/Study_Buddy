@@ -430,3 +430,85 @@ def test_a_caveat_in_the_brief_is_not_treated_as_an_absence():
     assert "BEFORE YOU SAY THEY DIDN'T SHOW YOU SOMETHING, LOOK" in prompts.CLOSED_WORLD
     assert "A caveat is not an absence" in prompts.CLOSED_WORLD
     assert "GIVE what is there and name only the part" in prompts.CLOSED_WORLD
+
+
+# ============ correcting what was recorded ============
+def test_correcting_a_capture_stamps_it_so_the_brief_stays_auditable():
+    """Editing is not a hole in the closed world — the person typing was the one looking
+    at the screen, and knows what the reader could not read. What matters is that the
+    correction is visible afterwards."""
+    study, store, _ = build()
+    study.capture("Acme pricing", IMG)
+    shot = store.shots("Acme pricing")[0]
+    assert shot["edited"] is None
+    out = store.update_shot(shot["id"], note="Chip is ESP32-FH4R2. Serial 88-A17.")
+    assert "ESP32-FH4R2" in out["note"]
+    assert store.shots("Acme pricing")[0]["edited"] is not None
+
+
+def test_a_corrected_capture_is_what_the_next_seal_compacts():
+    """The note is the source the brief is rebuilt from, so correcting it is the durable
+    fix — anything else gets overwritten the next time Done is pressed."""
+    study, store, llm = build()
+    study.capture("Acme pricing", IMG)
+    store.update_shot(store.shots("Acme pricing")[0]["id"],
+                      note="The label reads ESP32-FH4R2, legible in person.")
+    study.seal("Acme pricing")
+    assert "ESP32-FH4R2" in llm.of_kind("brief")[0]["user"]
+
+
+def test_an_edited_brief_survives_the_next_seal():
+    """The trap this feature could have shipped with: edit the brief, add a capture, press
+    Done, and watch the edit vanish. Compaction is handed the existing brief and told to
+    carry forward what the new captures don't change, so the edit goes in as source."""
+    study, store, llm = sealed()
+    store.update_brief("Acme pricing", "# Acme\nHand-corrected: the annual discount is 18%.")
+    study.capture("Acme pricing", IMG)
+    study.seal("Acme pricing")
+    merge = llm.of_kind("brief")[-1]
+    assert "annual discount is 18%" in merge["user"], "the edit must reach compaction"
+    assert "EXISTING BRIEF" in merge["user"]
+    assert "AN EARLIER BRIEF" in merge["full_system"]
+
+
+def test_an_edited_brief_is_what_answers_come_from():
+    study, store, llm = sealed()
+    store.update_brief("Acme pricing", "# Acme\nThe only fact: support closes at 5pm.")
+    study.ask("when does support close?", "Acme pricing")
+    assert "support closes at 5pm" in llm.of_kind("ask")[-1]["full_system"]
+    assert "Everything, compacted." not in llm.of_kind("ask")[-1]["full_system"]
+
+
+def test_editing_refuses_an_empty_or_missing_target():
+    study, store, _ = build()
+    study.capture("Acme pricing", IMG)
+    shot = store.shots("Acme pricing")[0]
+    assert store.update_shot(shot["id"]) is None, "nothing to change is not an edit"
+    assert store.update_shot(999_999, note="whatever") is None
+    assert store.update_brief("Never Sealed", "some text") is False
+
+
+def test_an_older_brain_gains_the_edited_columns():
+    """The brain in the repo predates these columns and is the only copy of what someone
+    captured. CREATE TABLE IF NOT EXISTS would have left it silently without them."""
+    import sqlite3, tempfile, pathlib
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "old.db"
+    old = sqlite3.connect(tmp)
+    old.executescript("""
+        CREATE TABLE subjects (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+                               created REAL NOT NULL, last_seen REAL NOT NULL);
+        CREATE TABLE shots (id INTEGER PRIMARY KEY, subject_id INTEGER NOT NULL,
+                            seq INTEGER NOT NULL, ts REAL NOT NULL,
+                            kind TEXT NOT NULL DEFAULT 'screen', source TEXT, label TEXT,
+                            summary TEXT NOT NULL DEFAULT '', note TEXT NOT NULL);
+        CREATE TABLE briefs (subject_id INTEGER PRIMARY KEY, text TEXT NOT NULL,
+                             updated REAL NOT NULL, n_shots INTEGER NOT NULL DEFAULT 0);
+    """)
+    old.execute("INSERT INTO subjects VALUES (1,'Kept',0,0)")
+    old.execute("INSERT INTO shots (subject_id,seq,ts,note) VALUES (1,1,0,'the old note')")
+    old.commit(); old.close()
+
+    store = Store(str(tmp))
+    assert "edited" in {r[1] for r in store._conn.execute("PRAGMA table_info(shots)")}
+    assert "edited" in {r[1] for r in store._conn.execute("PRAGMA table_info(briefs)")}
+    assert store.shots("Kept")[0]["note"] == "the old note", "existing data must survive"
