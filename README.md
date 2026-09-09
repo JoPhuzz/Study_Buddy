@@ -48,6 +48,12 @@ model can talk itself out of.
 - **Paste a URL instead** — for a web page this is strictly better than a screenshot:
   every line, in order, nothing lost at the fold, no OCR mistakes on a dense table, no
   twenty presses to get to the bottom. Screenshots are for programs; URLs are for pages.
+- **Drop a file on it** — PDF, image (PNG/JPEG/GIF/WebP) or text (txt, md, csv, json…).
+  A PDF becomes one capture per page, in page order, so the reader treats page 4 as
+  following page 3. One rule decides how each is handled: **if the file already carries
+  text, it is extracted** — free, exact, and better than reading a picture of the same
+  words. Only pages with no text layer go through the vision reader, and the app tells
+  you when that happened and what it cost.
 - **Add more later** — capture again against the same subject and press Done; the brief
   merges rather than starting over. Until you do, answers say the brief predates your
   latest captures.

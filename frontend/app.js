@@ -156,7 +156,7 @@ function render() {
     const mid = el("div", "shot-mid");
     mid.appendChild(el("div", "shot-sum", s.summary || "…"));
     if (s.label) mid.appendChild(el("div", "shot-label", "“" + s.label + "”"));
-    if (s.kind === "url" && s.source) mid.appendChild(el("div", "shot-label", s.source));
+    if (s.source && s.kind !== "screen") mid.appendChild(el("div", "shot-label", s.source));
     li.appendChild(mid);
     if (!s.pending) {
       const b = el("button", "ghost tiny-btn", "✕");
@@ -341,6 +341,72 @@ async function showLibrary() {
     });
   });
 }
+
+// ===== files: drop or pick =====
+// A PDF arrives as one capture per page, so a single drop can bank forty things. The
+// upload is serialised with the screen-capture queue for the same reason that queue
+// exists: order is what lets the reader recognise page 4 as following page 3.
+async function uploadFile(file) {
+  const row = { pending: ++pendingId, summary: `reading ${file.name}…` };
+  state.shots.push(row);
+  render();
+  const form = new FormData();
+  form.append("file", file);
+  if (state.subject) form.append("subject", state.subject);
+  try {
+    const r = await fetch("/api/capture/file", { method: "POST", body: form });
+    if (r.status === 401) { location.href = "/login"; return; }
+    const d = await r.json().catch(() => ({ ok: false, error: "Bad response from server." }));
+    if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    state.subject = d.subject;
+    state.stale = true;
+    const n = d.n_banked;
+    toast(`${file.name}: ${n} capture${n === 1 ? "" : "s"} banked`
+          + (d.cost ? ` · $${d.cost.toFixed(4)}` : " · free"), "good");
+    (d.notes || []).forEach((note) => toast(note, "bad"));
+  } catch (e) {
+    toast(`${file.name}: ${e.message}`, "bad");
+  } finally {
+    const i = state.shots.indexOf(row);
+    if (i >= 0) state.shots.splice(i, 1);
+    await refreshShots();
+    render();
+  }
+}
+
+async function uploadAll(fileList) {
+  const list = [...fileList];
+  if (!list.length) return;
+  for (const f of list) await uploadFile(f);   // in order, one at a time
+}
+
+$("pickBtn").addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", (e) => {
+  uploadAll(e.target.files);
+  e.target.value = "";        // so re-picking the same file fires again
+});
+
+// The veil is pointer-events:none, so these listeners stay on the document and the drop
+// lands wherever it was released.
+let dragDepth = 0;
+document.addEventListener("dragenter", (e) => {
+  if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+  e.preventDefault();
+  if (++dragDepth === 1) $("dropVeil").classList.remove("hidden");
+});
+document.addEventListener("dragover", (e) => {
+  if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault();
+});
+document.addEventListener("dragleave", () => {
+  if (--dragDepth <= 0) { dragDepth = 0; $("dropVeil").classList.add("hidden"); }
+});
+document.addEventListener("drop", (e) => {
+  if (!e.dataTransfer?.files?.length) return;
+  e.preventDefault();
+  dragDepth = 0;
+  $("dropVeil").classList.add("hidden");
+  uploadAll(e.dataTransfer.files);
+});
 
 // ===== wiring =====
 $("shareBtn").addEventListener("click", share);

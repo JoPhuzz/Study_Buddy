@@ -32,6 +32,9 @@
         <button id="shareBtn" class="primary big-btn">Share a window</button>
         <p class="hint tiny">Studying a web page? Paste its address below instead —
           I'll read every line rather than squinting at a screenshot.</p>
+        <p class="hint tiny">Or drop a <strong>PDF, image or text file</strong> anywhere on
+          this page. A PDF becomes one capture per page.
+          <button id="pickBtn" class="linkish" type="button">Choose a file</button></p>
       </div>
     </div>
 
@@ -93,6 +96,9 @@
     </div>
   </div>
 
+  <input id="fileInput" type="file" multiple hidden
+         accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.tsv,.json,.yaml,.yml,.log,.xml,.srt,.vtt" />
+  <div id="dropVeil" class="drop-veil hidden"><div class="drop-card">Drop it — I'll read it</div></div>
   <div id="toast" class="toast hidden"></div>
   <script src="/static/app.js?v=__BUILD__"></script>
 </body>
