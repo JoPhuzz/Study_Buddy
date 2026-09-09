@@ -418,3 +418,15 @@ def test_direct_mode_can_hold_a_complete_short_answer():
     from backend.modes import MODES
     assert MODES["direct"].max_tokens >= 400
     assert "facts only" in MODES["direct"].persona.lower()
+
+
+def test_a_caveat_in_the_brief_is_not_treated_as_an_absence():
+    """Asked for a board's pinout, it answered "only the heading was captured" — about a
+    brief that held the full pin-by-pin listing. The reader had honestly noted that a
+    heading was clipped and one chip label was too small to read; those caveats about
+    individual details got generalised into the whole section being missing. Refusing on
+    top of real data is worse than any wrong answer: it hides what they did capture, and
+    they have no way to know."""
+    assert "BEFORE YOU SAY THEY DIDN'T SHOW YOU SOMETHING, LOOK" in prompts.CLOSED_WORLD
+    assert "A caveat is not an absence" in prompts.CLOSED_WORLD
+    assert "GIVE what is there and name only the part" in prompts.CLOSED_WORLD
