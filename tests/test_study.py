@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 
 import pytest
 
@@ -623,3 +624,34 @@ def test_compaction_is_told_it_has_room():
     told it not to, not because it ran out of space."""
     assert "USE THE ROOM YOU HAVE" in prompts.BRIEF
     assert "a short brief is a lossy one" in prompts.BRIEF
+
+
+# --- the frontend contract -----------------------------------------------------------
+# app.js reaches into the page by id and nothing checks that the id is there. A missing
+# one throws on a null at boot and the app is simply blank — no error anyone will read,
+# and nothing a backend test would notice. These two are cheap and catch the whole class.
+
+FRONTEND = pathlib.Path(__file__).resolve().parents[1] / "frontend"
+
+
+def _element_ids(html: str) -> set[str]:
+    return set(re.findall(r'\bid="([^"]+)"', html))
+
+
+def test_every_id_the_script_reaches_for_exists_in_the_page():
+    js = (FRONTEND / "app.js").read_text()
+    html = (FRONTEND / "index.html").read_text()
+    wanted = set(re.findall(r'\$\("([^"]+)"\)', js))
+    assert wanted, "the $() helper moved — this test is now checking nothing"
+    missing = sorted(wanted - _element_ids(html))
+    assert not missing, f"app.js reads ids that index.html doesn't define: {missing}"
+
+
+def test_the_mode_rail_still_has_a_select_behind_it():
+    """The sigils are a skin. The <select> is what actually holds the mode and what the
+    change listener hangs off, so a redesign that deletes it silently strands the
+    picker: it would still light up and still never reach the server."""
+    html = (FRONTEND / "index.html").read_text()
+    js = (FRONTEND / "app.js").read_text()
+    assert re.search(r'<select[^>]*\bid="mode"', html)
+    assert 'dispatchEvent(new Event("change"))' in js

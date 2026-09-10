@@ -3,23 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#06070b" />
   <title>Study Buddy — Sign in</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body>
+<body class="login">
   <div class="login-wrap">
     <div class="login-card">
-      <div class="brand" style="justify-content:center"><span class="dot"></span> Study Buddy</div>
+      <span class="dot"></span>
+      <h1 class="login-title">Study Buddy</h1>
+      <p class="hint tiny" style="margin:0 0 6px">Only what you've shown it.</p>
       <input id="pw" class="label-input" type="password" placeholder="password"
              autocomplete="current-password" />
       <div id="err" class="pin-error"></div>
-      <button id="go" class="primary big-btn">Enter</button>
+      <button id="go" class="primary big-btn" style="margin:0">Enter</button>
     </div>
   </div>
   <script>
-    const pw = document.getElementById("pw"), err = document.getElementById("err");
+    const pw = document.getElementById("pw"), err = document.getElementById("err"),
+          go = document.getElementById("go");
     async function login() {
       err.textContent = "";
+      go.disabled = true;
+      document.body.classList.add("busy");
       try {
         const r = await fetch("/api/login", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -29,8 +36,9 @@
         if (d.ok) location.href = "/";
         else { err.textContent = d.error || "Wrong password."; pw.value = ""; pw.focus(); }
       } catch (e) { err.textContent = "Can't reach the server — try again."; }
+      finally { go.disabled = false; document.body.classList.remove("busy"); }
     }
-    document.getElementById("go").addEventListener("click", login);
+    go.addEventListener("click", login);
     pw.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
     pw.focus();
   </script>
