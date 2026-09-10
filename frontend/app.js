@@ -4,6 +4,11 @@
 // grabs one frame and posts it. Frames are 1400px wide because interfaces are dense
 // 11-13px text and a menu label that survives at 800px is mush at 600.
 //
+// The interface answers back. Sharing, reading, thinking and banking each have a
+// visible state — the core in the top bar, the brackets on the stage, the shutter
+// flash — because every one of them is something happening on a server you can't see,
+// and a tool that gives you nothing back while it works feels broken even when it isn't.
+//
 // Captures are posted through a SERIAL queue, never in parallel. The server assigns the
 // sequence number on arrival, and the order captures were taken in is load-bearing —
 // it's what lets the reader recognise the fourth shot as the same page scrolled further
@@ -24,10 +29,19 @@ const post = (path, body) =>
   api(path, { method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body || {}) });
 
+// One counter, one lamp. Any number of overlapping requests, one honest indicator.
+let busy = 0;
+function working(on) {
+  busy = Math.max(0, busy + (on ? 1 : -1));
+  document.body.classList.toggle("busy", busy > 0);
+}
+
 let toastTimer = null;
 function toast(msg, kind) {
   const t = $("toast");
   t.textContent = msg;
+  t.className = "toast hidden";
+  void t.offsetWidth;                       // restart the entry animation for a second toast
   t.className = "toast" + (kind ? " " + kind : "");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.add("hidden"), 4200);
@@ -75,6 +89,15 @@ function grabFrame() {
   return c.toDataURL("image/jpeg", 0.82);   // text survives compression poorly
 }
 
+// A frame is banked in about a millisecond and posted invisibly, so without this you
+// press the button and nothing whatsoever happens. The flash is the receipt.
+function shutter() {
+  const f = $("flash");
+  f.classList.remove("fire");
+  void f.offsetWidth;
+  f.classList.add("fire");
+}
+
 // ===== the capture queue =====
 // One in flight at a time, in the order the button was pressed. A pending row appears
 // the instant you press, so you can carry on clicking through pages while the reading
@@ -87,6 +110,7 @@ function bank() {
   if (!state.sharing) { toast("Share a window first.", "bad"); return; }
   const image = grabFrame();
   if (!image) { toast("Nothing to capture yet — the shared window hasn't painted.", "bad"); return; }
+  shutter();
   const label = $("labelInput").value.trim();
   $("labelInput").value = "";
   const row = { pending: ++pendingId, label, summary: label || "reading…" };
@@ -135,6 +159,8 @@ function render() {
   const n = state.shots.length;
   $("shotBadge").textContent = n;
   $("shotBadge").classList.toggle("hidden", !n);
+  document.body.classList.toggle("live", state.sharing);
+  $("stage").classList.toggle("live", state.sharing);
   $("previewEmpty").classList.toggle("hidden", state.sharing);
   preview.classList.toggle("hidden", !state.sharing);
   $("captureBtn").disabled = !state.sharing;
@@ -152,6 +178,9 @@ function render() {
   list.innerHTML = "";
   state.shots.forEach((s, i) => {
     const li = el("li", "shot" + (s.pending ? " pending" : "") + (s.failed ? " failed" : ""));
+    // Rows cascade in rather than appearing as a block — a PDF landing forty pages at
+    // once should read as an arrival, not a repaint. Capped so page 40 isn't a wait.
+    li.style.animationDelay = Math.min(i, 12) * 26 + "ms";
     li.appendChild(el("span", "shot-n", s.seq ? "#" + s.seq : "·"));
     const mid = el("div", "shot-mid");
     mid.appendChild(el("div", "shot-sum", s.summary || "…"));
@@ -202,6 +231,7 @@ async function seal() {
   const was = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Reading it all…";
+  working(true);
   try {
     const d = await post("/api/seal", { subject: state.subject });
     state.sealed = true;
@@ -214,10 +244,97 @@ async function seal() {
   } catch (e) {
     toast(e.message, "bad");
   } finally {
+    working(false);
     btn.textContent = was;
     btn.disabled = false;
     render();
   }
+}
+
+// ===== the mode rail =====
+// Five sigils drawn on one 24-grid from the same three parts — a ring, a core, a
+// vertical — so they read as one alphabet. These are five ways of reading the same
+// brief; five icons borrowed from five different metaphors would say the opposite.
+// The <select> stays in the DOM and stays authoritative: this is a skin over it, so
+// the mode still round-trips to the server through exactly one path.
+const SIGILS = {
+  answer:  '<circle class="orbit" cx="12" cy="12" r="8.5" stroke-dasharray="30 7"/>'      // one point, ringed
+         + '<circle cx="12" cy="12" r="2.9" fill="currentColor" stroke="none"/>',
+  quote:   '<circle cx="12" cy="12" r="8.5"/><path d="M9 8.4v7.2M15 8.4v7.2"/>',          // held between two bars
+  summary: '<circle class="orbit" cx="12" cy="12" r="8.5" stroke-dasharray="17 6"/>'      // rings closing inward
+         + '<circle cx="12" cy="12" r="5"/>'
+         + '<circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/>',
+  compare: '<circle cx="8.7" cy="12" r="5.7"/><circle cx="15.3" cy="12" r="5.7"/>',       // the lens between two
+  direct:  '<path d="M12 2.6v18.8"/>'                                                     // shortest path through
+         + '<circle cx="12" cy="12" r="3.3" fill="currentColor" stroke="none"/>',
+};
+
+function sigilSvg(key) {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" '
+       + 'stroke-linecap="round" aria-hidden="true">'
+       + (SIGILS[key] || '<circle cx="12" cy="12" r="8.5"/>') + '</svg>';
+}
+
+// The halo slides between sigils. It can only be placed once the rail has a layout, so
+// a call while the ask view is hidden is a no-op and showAsk() places it on the way in.
+function moveHalo(instant) {
+  const on = $("modeRail").querySelector('[aria-selected="true"]');
+  const halo = $("modeHalo");
+  if (!on || !on.offsetWidth) return;
+  if (instant) halo.classList.add("armed");
+  halo.style.left = on.offsetLeft + "px";
+  halo.style.width = on.offsetWidth + "px";
+  if (instant) { void halo.offsetWidth; halo.classList.remove("armed"); }
+}
+
+function paintMode(key, animate) {
+  let name = "";
+  $("modeRail").querySelectorAll(".sigil").forEach((b) => {
+    const on = b.dataset.key === key;
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+    if (on) name = b.dataset.name;
+  });
+  const label = $("modeName");
+  if (label.textContent !== name) {
+    label.textContent = name;
+    if (animate) { label.classList.remove("swap"); void label.offsetWidth; label.classList.add("swap"); }
+  }
+  moveHalo(!animate);
+}
+
+function buildRail(modeList) {
+  const rail = $("modeRail"), sel = $("mode");
+  const keys = modeList.map((m) => m.key);
+  const pick = (key) => {
+    if (sel.value === key) return;
+    sel.value = key;
+    paintMode(key, true);
+    sel.dispatchEvent(new Event("change"));
+  };
+  modeList.forEach((m) => {
+    const b = el("button", "sigil");
+    b.type = "button";
+    b.dataset.key = m.key;
+    b.dataset.name = m.name;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-label", m.name);
+    b.title = m.name + " — " + m.persona;
+    b.innerHTML = sigilSvg(m.key);
+    b.addEventListener("click", () => pick(m.key));
+    rail.appendChild(b);
+  });
+  // Arrow keys walk the rail, the way a segmented control is supposed to.
+  rail.addEventListener("keydown", (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const next = keys[(keys.indexOf(sel.value) + step + keys.length) % keys.length];
+    const btn = rail.querySelector('[data-key="' + next + '"]');
+    pick(next);
+    btn.focus();
+  });
+  addEventListener("resize", () => moveHalo(true));
 }
 
 // ===== ask =====
@@ -230,6 +347,7 @@ function showAsk() {
                   + "“Capture more”, then Done, to fold them in.";
     w.classList.remove("hidden");
   } else w.classList.add("hidden");
+  moveHalo(true);
   $("question").focus();
 }
 function showCapture() {
@@ -263,7 +381,9 @@ function setBubble(node, text) { node.innerHTML = md(text); }
 
 async function ask(q) {
   addBubble("me", q);
-  const thinking = addBubble("buddy thinking", "reading the brief…");
+  const thinking = addBubble("buddy thinking", "reading the brief");
+  thinking.insertAdjacentHTML("beforeend", '<span class="pulse"><i></i><i></i><i></i></span>');
+  working(true);
   try {
     const d = await post("/api/ask", { question: q, subject: state.subject });
     thinking.classList.remove("thinking");
@@ -282,6 +402,8 @@ async function ask(q) {
     thinking.classList.remove("thinking");
     thinking.classList.add("err");
     thinking.textContent = e.message;
+  } finally {
+    working(false);
   }
 }
 
@@ -446,6 +568,7 @@ async function uploadFile(file) {
   const row = { pending: ++pendingId, summary: `reading ${file.name}…` };
   state.shots.push(row);
   render();
+  working(true);
   const form = new FormData();
   form.append("file", file);
   if (state.subject) form.append("subject", state.subject);
@@ -463,6 +586,7 @@ async function uploadFile(file) {
   } catch (e) {
     toast(`${file.name}: ${e.message}`, "bad");
   } finally {
+    working(false);
     const i = state.shots.indexOf(row);
     if (i >= 0) state.shots.splice(i, 1);
     await refreshShots();
@@ -539,6 +663,7 @@ $("urlBtn").addEventListener("click", async () => {
   if (!url) return;
   const btn = $("urlBtn");
   btn.disabled = true; btn.textContent = "Reading…";
+  working(true);
   try {
     const d = await post("/api/capture/url", { url, subject: state.subject });
     state.subject = d.subject;
@@ -547,7 +672,7 @@ $("urlBtn").addEventListener("click", async () => {
     toast("Read that page in full.", "good");
     await refreshShots();
   } catch (e) { toast(e.message, "bad"); }
-  finally { btn.disabled = false; btn.textContent = "Fetch"; }
+  finally { working(false); btn.disabled = false; btn.textContent = "Fetch"; }
 });
 
 $("composer").addEventListener("submit", (e) => {
@@ -588,8 +713,10 @@ async function boot() {
         o.value = m.key; o.textContent = m.name; o.title = m.persona;
         sel.appendChild(o);
       });
+      buildRail(st.modes);
     }
     sel.value = (st.modes.find((m) => m.name === st.mode) || {}).key || "answer";
+    paintMode(sel.value, false);
     const s = st.sync || {};
     $("sync").className = "sync " + (!s.enabled ? "off" : s.error ? "bad" : "ok");
     $("sync").title = !s.enabled ? "Brain sync off (no token) — memory is local only"

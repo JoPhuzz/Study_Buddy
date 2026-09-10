@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#06070b" />
   <title>Study Buddy</title>
   <link rel="stylesheet" href="/static/style.css?v=__BUILD__" />
 </head>
 <body>
   <header class="bar">
-    <div class="brand"><span class="dot"></span> Study Buddy</div>
+    <div class="brand"><span class="dot"></span> <span class="brand-name">Study Buddy</span></div>
     <button id="subjectBtn" class="subject" title="Rename this subject">
       <span id="subjectName">No subject yet</span>
       <span id="shotBadge" class="badge hidden">0</span>
@@ -22,7 +24,7 @@
 
   <!-- ============ CAPTURE ============ -->
   <section id="captureView" class="view">
-    <div class="stage">
+    <div id="stage" class="stage">
       <video id="preview" class="preview" autoplay playsinline muted></video>
       <div id="previewEmpty" class="preview-empty">
         <p class="big">Show me something.</p>
@@ -36,6 +38,10 @@
           this page. A PDF becomes one capture per page.
           <button id="pickBtn" class="linkish" type="button">Choose a file</button></p>
       </div>
+      <div class="scan"></div>
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+      <div id="flash" class="flash"></div>
     </div>
 
     <div class="capture-bar">
@@ -57,8 +63,8 @@
     </div>
 
     <div class="shots-head">
-      <span id="shotsTitle">Nothing captured yet</span>
-      <button id="stopBtn" class="ghost hidden">Stop sharing</button>
+      <span id="shotsTitle" class="micro">Nothing captured yet</span>
+      <button id="stopBtn" class="ghost tiny hidden">Stop sharing</button>
     </div>
     <ol id="shots" class="shots"></ol>
   </section>
@@ -67,8 +73,13 @@
   <section id="askView" class="view hidden">
     <div class="ask-head">
       <button id="backToCapture" class="ghost">← Capture more</button>
-      <select id="mode" class="mode-select" title="How to pitch the answer"></select>
       <button id="briefBtn" class="ghost">Read the brief</button>
+      <!-- The rail below drives this; it stays the source of truth. -->
+      <select id="mode" class="hidden"></select>
+      <div id="modeRail" class="mode-rail" role="tablist" aria-label="How to pitch the answer">
+        <span id="modeHalo" class="mode-halo"></span>
+      </div>
+      <span id="modeName" class="mode-name"></span>
     </div>
     <div id="staleWarn" class="warn hidden"></div>
     <main id="chat" class="chat">
@@ -90,7 +101,7 @@
     <div class="sheet-card">
       <div class="sheet-head">
         <span id="sheetTitle">Brief</span>
-        <button id="sheetClose" class="ghost">✕</button>
+        <button id="sheetClose" class="ghost tiny-btn">✕</button>
       </div>
       <div id="sheetBody" class="sheet-body"></div>
     </div>
