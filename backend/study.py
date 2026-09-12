@@ -115,16 +115,40 @@ class Study:
         # so where the first line of content adds something, it goes in the label too.
         first = next((ln.strip() for ln in text.splitlines() if len(ln.strip()) > 3), "")
         summary = (title or "").strip() or (source or "pasted text")
-        if first and first.lower() not in summary.lower() and summary.lower() not in first.lower():
+        # A page title or filename is a weak label and gets the first line for help; a
+        # title YOU typed is the label you chose, and stands alone.
+        if (kind != "note" and first and first.lower() not in summary.lower()
+                and summary.lower() not in first.lower()):
             summary = f"{summary} · {first}"
         summary = summary[:200]
-        note = (f"SOURCE: {source}\nTITLE: {title}\n\n{text}").strip()
+        head = (f"WRITTEN BY YOU — your own words, not a captured source\nTITLE: {title}"
+                if kind == "note" else f"SOURCE: {source}\nTITLE: {title}")
+        note = f"{head}\n\n{text}".strip()
         seq = self.store.add_shot(subject, note=note, summary=summary, kind=kind,
                                   source=source)
         self.store.set_state(f"stale:{subject}", "1")
         last = self.store.last_shot(subject) or {}
         return {"subject": subject, "seq": seq, "id": last.get("id"), "summary": summary,
                 "note": note, "cost": 0.0, "n_shots": self.store.shot_count(subject)}
+
+    def write(self, subject: str | None, title: str, text: str) -> dict:
+        """Bank something you typed yourself — a thought, a workflow, the thing you
+        already know and want on the record next to what you captured.
+
+        Nothing reads it: it goes in verbatim, because you are the author and there is
+        no image to interpret. What matters is that it stays marked as YOURS all the
+        way down. A pricing page and your opinion of the pricing page are both
+        legitimate material, but an answer that blends the two — "the Team plan is the
+        right one" stated as if the page said so — is the failure this app exists to
+        prevent, and it would be your own words doing the blending.
+        """
+        text = (text or "").strip()
+        if not text:
+            raise ValueError("Nothing to bank — the note is empty.")
+        title = (title or "").strip()
+        if not title:
+            title = next((ln.strip() for ln in text.splitlines() if ln.strip()), "Note")[:80]
+        return self.capture_text(subject, title, text, source="", kind="note")
 
     def _name_subject(self, note: str, summary: str) -> str:
         """Name a subject from its first capture, so the flow never starts with a form."""
@@ -158,6 +182,8 @@ class Study:
                 head += f' — labelled "{s["label"]}"'
             if s.get("kind") == "url" and s.get("source"):
                 head += f" — fetched from {s['source']}"
+            elif s.get("kind") == "note":
+                head += " — WRITTEN BY THE PERSON THEMSELVES, in their own words"
             parts.append(f"{head} ---\n{s['note']}")
         notes = "\n\n".join(parts)
 

@@ -186,6 +186,7 @@ function render() {
     mid.appendChild(el("div", "shot-sum", s.summary || "…"));
     if (s.label) mid.appendChild(el("div", "shot-label", "“" + s.label + "”"));
     if (s.source && s.kind !== "screen") mid.appendChild(el("div", "shot-label", s.source));
+    if (s.kind === "note") mid.appendChild(el("div", "shot-mine", "✎ your own words"));
     if (s.edited) mid.appendChild(el("div", "shot-edited", "✎ corrected by you"));
     li.appendChild(mid);
     if (!s.pending) {
@@ -437,7 +438,7 @@ function editorSheet(title, opts) {
     if (opts.hint) body.appendChild(el("p", "hint", opts.hint));
     let summaryEl = null;
     if (opts.summary !== undefined) {
-      body.appendChild(el("label", "edit-label", "Summary — the line in the list"));
+      body.appendChild(el("label", "edit-label", opts.summaryLabel || "Summary — the line in the list"));
       summaryEl = el("input", "label-input");
       summaryEl.type = "text";
       summaryEl.value = opts.summary || "";
@@ -448,7 +449,7 @@ function editorSheet(title, opts) {
     area.value = opts.text || "";
     body.appendChild(area);
     const row = el("div", "edit-actions");
-    const save = el("button", "primary", "Save");
+    const save = el("button", "primary", opts.saveLabel || "Save");
     const cancel = el("button", "ghost", "Cancel");
     cancel.addEventListener("click", () => $("sheet").classList.add("hidden"));
     save.addEventListener("click", async () => {
@@ -458,7 +459,15 @@ function editorSheet(title, opts) {
         $("sheet").classList.add("hidden");
       } catch (e) {
         toast(e.message, "bad");
-        save.disabled = false; save.textContent = "Save";
+        save.disabled = false; save.textContent = opts.saveLabel || "Save";
+      }
+    });
+    // ⌘↩ / Ctrl+↩ saves from inside the text, so a note can be banked without
+    // reaching for the mouse — the same reflex as Space on the capture button.
+    body.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !save.disabled) {
+        e.preventDefault();
+        save.click();
       }
     });
     row.appendChild(save); row.appendChild(cancel);
@@ -481,6 +490,28 @@ function editShot(shot) {
       });
       toast(`Capture #${shot.seq} corrected — press Done to fold it into the brief.`, "good");
       state.stale = true;
+      await refreshShots();
+    },
+  });
+}
+
+// Your own words as a capture. It lands in the list, is compacted with the rest,
+// and answers can draw on it — attributed to you, never to a source you captured.
+function writeNote() {
+  editorSheet("Write a note", {
+    hint: "Whatever you type is banked exactly as written, marked as yours. Press Done "
+        + "afterwards to fold it into the brief.",
+    summary: "",
+    summaryLabel: "Title — the line in the list (optional)",
+    bodyLabel: "Your note",
+    saveLabel: "Bank it",
+    text: "",
+    onSave: async (text, title) => {
+      if (!text.trim()) throw new Error("Nothing to bank — the note is empty.");
+      const d = await post("/api/capture/note", { title, text, subject: state.subject });
+      state.subject = d.subject;
+      state.stale = true;
+      toast(`Note #${d.seq} banked — press Done to fold it into the brief.`, "good");
       await refreshShots();
     },
   });
@@ -630,6 +661,8 @@ document.addEventListener("drop", (e) => {
 
 // ===== wiring =====
 $("shareBtn").addEventListener("click", share);
+$("writeBtn").addEventListener("click", writeNote);
+$("writeHint").addEventListener("click", writeNote);
 $("stopBtn").addEventListener("click", stopSharing);
 $("captureBtn").addEventListener("click", bank);
 $("doneBtn").addEventListener("click", seal);

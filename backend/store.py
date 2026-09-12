@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS shots (
     subject_id INTEGER NOT NULL REFERENCES subjects(id),
     seq        INTEGER NOT NULL,
     ts         REAL NOT NULL,
-    kind       TEXT NOT NULL DEFAULT 'screen',   -- 'screen' | 'url'
-    source     TEXT,                             -- the URL, for kind='url'
+    kind       TEXT NOT NULL DEFAULT 'screen',   -- screen | url | video | file | note
+    source     TEXT,                             -- the URL or filename; empty for note
     label      TEXT,                             -- optional caption you typed
     summary    TEXT NOT NULL DEFAULT '',         -- one line, for the shot list
     note       TEXT NOT NULL,                    -- the full reading; the only record
