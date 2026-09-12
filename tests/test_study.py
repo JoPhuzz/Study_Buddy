@@ -196,6 +196,47 @@ def test_fetched_page_text_is_banked_without_a_vision_call():
     assert out["n_shots"] == 1
 
 
+def test_your_own_note_is_banked_verbatim_with_no_model_call():
+    """You are the author; there is no image to interpret and nothing to paraphrase."""
+    study, store, llm = build()
+    body = "How I set up a bevel:\n1. Ctrl+B\n2. scroll for segments\n3. don't touch clamp"
+    out = study.write("Blender", "Bevel workflow", body)
+    assert not llm.calls, "nothing reads a note — it is the record"
+    shot = store.shots("Blender")[0]
+    assert shot["kind"] == "note"
+    assert body in shot["note"], "every character survives, including the ones you'd tidy"
+    assert shot["note"].startswith("WRITTEN BY YOU")
+    assert out["cost"] == 0.0 and out["summary"] == "Bevel workflow"
+
+
+def test_a_note_without_a_title_takes_its_first_line():
+    study, store, llm = build()
+    study.write("Blender", "", "  \nRemember the clamp toggle\nit bites on tight corners")
+    assert store.shots("Blender")[0]["summary"] == "Remember the clamp toggle"
+
+
+def test_an_empty_note_is_refused():
+    study, store, llm = build()
+    with pytest.raises(ValueError):
+        study.write("Blender", "A title", "   \n\t ")
+    assert not store.shots("Blender")
+
+
+def test_a_note_stays_marked_as_yours_when_sealed():
+    """A pricing page and your opinion of it are both fair material. An answer that
+    blends them is the one failure this app exists to prevent, so the provenance has to
+    reach the model that writes the brief, not just the row in the list."""
+    study, store, llm = build()
+    study.capture_text("Acme", "Pricing", "Team costs $29.", source="https://acme.test/p")
+    study.write("Acme", "My take", "Team is the one for us — Business is overkill.")
+    study.seal("Acme")
+    user = llm.of_kind("brief")[0]["user"]
+    assert "capture [1] — fetched from https://acme.test/p" in user
+    assert "capture [2] — WRITTEN BY THE PERSON THEMSELVES" in user
+    assert "KEEP THEIR OWN WORDS SEPARATE" in prompts.BRIEF
+    assert "Never let something they wrote turn into something a document said" in prompts.BRIEF
+
+
 # ============ sealing ============
 def test_seal_compacts_every_note_in_the_order_shown():
     study, store, llm = build()

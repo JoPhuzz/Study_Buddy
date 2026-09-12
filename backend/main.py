@@ -281,6 +281,21 @@ async def capture_url(request: Request):
     return {"ok": True, **out}
 
 
+@app.post("/api/capture/note")
+async def capture_note(request: Request):
+    """Bank something you typed. Verbatim, free, and marked as yours in the record."""
+    body = await request.json()
+    eng = engine()
+    try:
+        out = eng.write(body.get("subject"), body.get("title") or "", body.get("text") or "")
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
+    print(f"[note] #{out['seq']} {out['subject']!r} {len(body.get('text') or '')} chars")
+    return {"ok": True, **out}
+
+
 @app.post("/api/capture/file")
 async def capture_file(file: UploadFile = File(...), subject: str = Form("")):
     """Bank a dropped file. A PDF becomes one capture per page, in page order.

@@ -322,9 +322,11 @@ body.busy .dot { animation: breathe 1s ease-in-out infinite; }
 }
 .done-btn:disabled { border-color: var(--line); color: var(--ink-faint); cursor: not-allowed; }
 
-.url-row { display: flex; gap: 10px; }
+.url-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .url-row .url-input, .url-row .ghost { min-height: 46px; }
-.url-row .ghost { padding: 0 22px; border-radius: var(--r-lg); }
+.url-row .ghost { padding: 0 22px; border-radius: var(--r-lg); white-space: nowrap; }
+.write-btn { color: var(--ink); border-color: rgba(124,231,255,.28); }
+.write-btn:hover { border-color: var(--a1); background: rgba(124,231,255,.08); }
 
 /* ============================ shot list ============================ */
 .shots-head {
@@ -371,7 +373,7 @@ body.busy .dot { animation: breathe 1s ease-in-out infinite; }
 @keyframes shimmer { to { background-position: -220% 0; } }
 .shot.failed { border-color: rgba(255,122,107,.34); background: rgba(255,122,107,.07); }
 .shot.failed .shot-sum { color: var(--bad); }
-.shot-edited {
+.shot-edited, .shot-mine {
   display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 600;
   letter-spacing: .05em; color: var(--a1);
   background: rgba(124,231,255,.1); border: 1px solid rgba(124,231,255,.26);
@@ -480,6 +482,7 @@ body.busy .dot { animation: breathe 1s ease-in-out infinite; }
   font-weight: 600; font-size: 16px; letter-spacing: -.01em;
 }
 .sheet-body { padding: 20px; overflow-y: auto; }
+.sheet-body > .hint { margin: 0 0 4px; max-width: 64ch; }
 
 .brief-doc { display: flex; flex-direction: column; gap: 6px; }
 .brief-h {
@@ -588,7 +591,11 @@ body.login { justify-content: center; align-items: center; overflow: auto; }
   transition: border-color var(--t), box-shadow var(--t);
 }
 .edit-area:focus { outline: none; border-color: rgba(124,231,255,.5); box-shadow: 0 0 0 4px rgba(124,231,255,.1); }
-.edit-actions { display: flex; gap: 10px; margin-top: 18px; }
+.edit-actions {
+  display: flex; gap: 10px; margin-top: 18px;
+  position: sticky; bottom: -20px; padding: 14px 0 20px; margin-bottom: -20px;
+  background: linear-gradient(180deg, transparent, var(--ground) 30%);
+}
 .sheet-body .label-input { width: 100%; min-height: 46px; border-radius: var(--r); }
 
 /* ---- scrollbars: present, not loud ---- */
