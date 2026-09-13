@@ -238,7 +238,9 @@ async function seal() {
     state.sealed = true;
     state.stale = false;
     state.subject = d.subject;
-    toast(`Brief written from ${d.n_shots} capture${d.n_shots === 1 ? "" : "s"}.`, "good");
+    toast(d.verbatim
+      ? `Brief is your ${d.n_shots} note${d.n_shots === 1 ? "" : "s"}, verbatim — nothing was sent anywhere.`
+      : `Brief written from ${d.n_shots} capture${d.n_shots === 1 ? "" : "s"}.`, "good");
     if (d.truncated) toast("The brief hit its length limit — ask for detail in sections.", "bad");
     showAsk();
     await loadTurns();
