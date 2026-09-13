@@ -899,3 +899,65 @@ def test_an_older_brain_gains_the_turn_columns(tmp_path):
     assert old["question"] == "q" and old["model"] is None, "old turns simply have no model"
     store.add_turn("Old", "q2", "a2", model="claude-sonnet-5", cost=0.002, seconds=3.1)
     assert store.turns("Old")[-1]["model"] == "claude-sonnet-5"
+
+
+# ============ notes-only subjects seal verbatim ============
+def test_a_subject_of_only_your_notes_seals_verbatim_with_no_model_call():
+    """Compaction earns its keep by stitching noisy captures. Typed notes are clean and
+    in your voice; a model can only paraphrase, drop or add. So the brief IS the notes —
+    free, instant, and your words go to nobody."""
+    study, store, llm = build()
+    study.write("Journal", "Bevel workflow", "1. Ctrl+B\n2. scroll for segments\n3. leave Clamp ON")
+    study.write("Journal", "", "Don't bevel before applying scale. Ever.")
+    out = study.seal("Journal")
+    assert not llm.calls, "nothing was sent to any model"
+    assert out["verbatim"] is True and out["cost"] == 0.0 and out["n_shots"] == 2
+    b = store.get_brief("Journal")["text"]
+    assert "1. Ctrl+B\n2. scroll for segments\n3. leave Clamp ON" in b, "character for character"
+    assert "Don't bevel before applying scale. Ever." in b
+    assert "## [1] Bevel workflow" in b and "## [2] Don't bevel before applying scale. Ever." in b
+    assert "WRITTEN BY YOU" not in b, "the record header is for the model, not the brief"
+    assert "every word below is yours" in b
+
+
+def test_one_captured_source_among_the_notes_brings_compaction_back():
+    study, store, llm = build()
+    study.write("Mixed", "My take", "Team is the one for us.")
+    study.capture_text("Mixed", "Plans", "Team: $29/month.", source="https://acme.test/p")
+    out = study.seal("Mixed")
+    assert llm.of_kind("brief"), "a captured page needs real compaction"
+    assert not out.get("verbatim")
+
+
+def test_a_verbatim_brief_answers_like_any_other():
+    study, store, llm = build(answer_reply="you noted Ctrl+B [1]")
+    study.write("Journal", "Bevel", "Ctrl+B then scroll")
+    study.seal("Journal")
+    out = study.ask("how do I bevel?", "Journal")
+    call = llm.of_kind("ask")[0]
+    assert "Ctrl+B then scroll" in call["full_system"], "the notes are the brief"
+    assert "verbatim" in call["full_system"]
+    assert out["answer"] == "you noted Ctrl+B [1]"
+
+
+def test_a_verbatim_brief_follows_the_note_when_you_edit_it():
+    """It is a pure function of the notes: to change it, change the note."""
+    study, store, llm = build()
+    study.write("Journal", "Bevel", "segments: 2")
+    study.seal("Journal")
+    shot = store.shots("Journal")[0]
+    store.update_shot(shot["id"], note=shot["note"].replace("segments: 2", "segments: 3"))
+    study.seal("Journal")
+    assert "segments: 3" in store.get_brief("Journal")["text"]
+    assert "segments: 2" not in store.get_brief("Journal")["text"]
+    assert not llm.calls
+
+
+def test_a_note_whose_header_was_edited_away_still_assembles():
+    study, store, llm = build()
+    study.write("Journal", "Bevel", "Ctrl+B")
+    shot = store.shots("Journal")[0]
+    store.update_shot(shot["id"], note="just the words now")   # header gone entirely
+    study.seal("Journal")
+    b = store.get_brief("Journal")["text"]
+    assert "## [1] Bevel" in b and "just the words now" in b

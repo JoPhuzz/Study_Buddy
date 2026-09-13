@@ -30,6 +30,22 @@ BRIEF_MAX_TOKENS = 8000     # the brief is the record; truncating it loses the m
 SUMMARY_RE = re.compile(r"^\s*SUMMARY:\s*(.+?)\s*$", re.I | re.M)
 
 
+_NOTE_HEAD = "WRITTEN BY YOU"
+
+
+def _note_parts(note: str, summary: str) -> tuple[str, str]:
+    """(title, body) of a note record, tolerant of the header having been edited away."""
+    lines = (note or "").split("\n")
+    title = ""
+    if lines and lines[0].startswith(_NOTE_HEAD):
+        lines = lines[1:]
+        if lines and lines[0].startswith("TITLE:"):
+            title = lines[0][len("TITLE:"):].strip()
+            lines = lines[1:]
+    body = "\n".join(lines).strip()
+    return (title or summary or "Note").strip(), body
+
+
 class NoBrief(RuntimeError):
     """Asked a question before anything was sealed."""
 
@@ -196,6 +212,8 @@ class Study:
         shots = self.store.shots(subject)
         if not shots:
             raise ValueError(f"No captures banked for {subject} yet.")
+        if all(s.get("kind") == "note" for s in shots):
+            return self._seal_verbatim(subject, shots)
 
         parts = []
         for s in shots:
@@ -226,6 +244,33 @@ class Study:
         self.store.set_state(f"stale:{subject}", "")
         return {"subject": subject, "brief": ans.text, "n_shots": len(shots),
                 "cost": ans.cost, "truncated": ans.truncated}
+
+    def _seal_verbatim(self, subject: str, shots: list[dict]) -> dict:
+        """A subject that is nothing but your own notes needs no compacting.
+
+        Compaction earns its keep on the hard case — screen captures with overlap, OCR
+        noise, tables cut at the fold — by stitching. Typed notes have none of that:
+        they are clean, in your voice, already arranged the way you think. Running them
+        through a model can only paraphrase, drop or add; the one thing it cannot do is
+        improve on the words you chose. So the brief IS the notes, in order, numbered so
+        answers can still cite them. Free, instant, faithful to the character, and your
+        words are sent to nobody — which is the reason to keep notes here at all.
+
+        It is rebuilt from the notes on every Done rather than merged, because it is a
+        pure function of them: to change it, change the note.
+        """
+        blocks = []
+        for s in shots:
+            title, body = _note_parts(s.get("note") or "", s.get("summary") or "")
+            blocks.append(f"## [{s['seq']}] {title}\n\n{body}".rstrip())
+        n = len(shots)
+        text = (f"# {subject}\n\nYour own notes, verbatim — {n} note{'s' if n != 1 else ''}, "
+                "in the order written. Nothing was compacted and nothing was sent to a "
+                "model; every word below is yours.\n\n" + "\n\n".join(blocks))
+        self.store.save_brief(subject, text, n)
+        self.store.set_state(f"stale:{subject}", "")
+        return {"subject": subject, "brief": text, "n_shots": n, "cost": 0.0,
+                "truncated": False, "verbatim": True}
 
     def brief(self, subject: str | None = None) -> dict | None:
         subject = (subject or "").strip() or self.store.current_subject() or ""
