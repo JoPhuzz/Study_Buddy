@@ -961,3 +961,38 @@ def test_a_note_whose_header_was_edited_away_still_assembles():
     study.seal("Journal")
     b = store.get_brief("Journal")["text"]
     assert "## [1] Bevel" in b and "just the words now" in b
+
+
+def test_a_notes_only_subject_answers_without_pressing_done():
+    """Done exists so that compaction — costly, lossy, a model call — is a deliberate
+    act. Assembling your own notes verbatim is none of those, so a question against an
+    unsealed notes subject just assembles the brief and answers. Nothing is sent to a
+    model that wasn't going to be sent the question anyway."""
+    study, store, llm = build(answer_reply="you wrote: apply scale first [1]")
+    study.write("Journal", "Bevel", "apply scale first")
+    assert store.get_brief("Journal") is None
+    out = study.ask("what did I say about scale?", "Journal")
+    assert out["answer"] == "you wrote: apply scale first [1]"
+    assert not llm.of_kind("brief"), "no compaction call was made"
+    assert "apply scale first" in store.get_brief("Journal")["text"]
+
+
+def test_a_notes_only_brief_is_never_stale_when_asked():
+    study, store, llm = build()
+    study.write("Journal", "One", "first thought")
+    study.seal("Journal")
+    study.write("Journal", "Two", "second thought")           # brief is now stale
+    assert store.get_state("stale:Journal")
+    study.ask("what?", "Journal")
+    call = llm.of_kind("ask")[0]
+    assert "second thought" in call["full_system"], "rebuilt from the notes before answering"
+    assert "have been banked since this brief" not in call["full_system"]
+    assert not store.get_state("stale:Journal")
+
+
+def test_a_captured_page_still_needs_done_before_questions():
+    study, store, llm = build()
+    study.capture_text("Acme", "Plans", "Team: $29.", source="https://acme.test/p")
+    with pytest.raises(NoBrief) as e:
+        study.ask("cost?", "Acme")
+    assert "Press Done" in str(e.value)

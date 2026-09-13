@@ -317,6 +317,7 @@ body.busy .dot { animation: breathe 1s ease-in-out infinite; }
 .write-btn:hover { border-color: var(--a1); background: rgba(240,207,110,.08); }
 
 /* ============================ shot list ============================ */
+.shots-actions { display: flex; gap: 8px; }
 .shots-head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 6px 2px 0; border-top: 1px solid var(--line-soft); padding-top: 12px;

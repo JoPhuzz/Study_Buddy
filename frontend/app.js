@@ -167,9 +167,21 @@ function render() {
   $("stopBtn").classList.toggle("hidden", !state.sharing);
   const ready = state.shots.some((s) => !s.pending && !s.failed);
   $("doneBtn").disabled = !ready;
-  $("doneBtn").textContent = state.sealed && state.stale
-    ? `Done — fold in ${n} capture${n === 1 ? "" : "s"}`
-    : "Done — read it all";
+  // Notes you wrote are never read by a model: Done keeps them as written. The button
+  // has to say so, because "read it all" at the moment you are being careful about
+  // privacy reads as the opposite of what happens.
+  const notesOnly = ready && state.shots.every((s) => s.kind === "note");
+  $("doneBtn").textContent = notesOnly
+    ? "Done — keep my notes as written"
+    : state.sealed && state.stale
+      ? `Done — fold in ${n} capture${n === 1 ? "" : "s"}`
+      : "Done — read it all";
+  $("doneBtn").title = notesOnly
+    ? "Your notes become the brief exactly as typed. No model reads them; nothing is sent anywhere."
+    : "Compact everything captured into the brief";
+  // A way back to the questions that doesn't cost a compaction: a sealed subject has a
+  // brief already, and a notes-only one assembles its own on demand.
+  $("askBtn").classList.toggle("hidden", !(state.sealed || notesOnly));
   $("shotsTitle").textContent = n
     ? `${n} capture${n === 1 ? "" : "s"} banked` + (state.sealed ? " · brief written" : "")
     : "Nothing captured yet";
@@ -345,7 +357,8 @@ function showAsk() {
   $("captureView").classList.add("hidden");
   $("askView").classList.remove("hidden");
   const w = $("staleWarn");
-  if (state.stale && state.sealed) {
+  const notesOnly = state.shots.length && state.shots.every((s) => s.kind === "note");
+  if (state.stale && state.sealed && !notesOnly) {
     w.textContent = "Captures banked since the brief was written aren't in it yet — press "
                   + "“Capture more”, then Done, to fold them in.";
     w.classList.remove("hidden");
@@ -528,7 +541,10 @@ function writeNote() {
       const d = await post("/api/capture/note", { title, text, subject: state.subject });
       state.subject = d.subject;
       state.stale = true;
-      toast(`Note #${d.seq} banked — press Done to fold it into the brief.`, "good");
+      const notesOnly = state.shots.every((s) => s.kind === "note");
+      toast(notesOnly
+        ? `Note #${d.seq} banked. Your notes are used as written — nothing is sent to a model.`
+        : `Note #${d.seq} banked — press Done to fold it into the brief.`, "good");
       await refreshShots();
     },
   });
@@ -684,6 +700,7 @@ $("stopBtn").addEventListener("click", stopSharing);
 $("captureBtn").addEventListener("click", bank);
 $("doneBtn").addEventListener("click", seal);
 $("backToCapture").addEventListener("click", showCapture);
+$("askBtn").addEventListener("click", async () => { showAsk(); await loadTurns(); });
 $("briefBtn").addEventListener("click", () => showBrief().catch((e) => toast(e.message, "bad")));
 $("libraryBtn").addEventListener("click", () => showLibrary().catch((e) => toast(e.message, "bad")));
 
