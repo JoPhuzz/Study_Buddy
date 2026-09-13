@@ -130,7 +130,7 @@ def _create(client, kwargs: dict):
         return client.messages.create(**kwargs)
 
 
-_TOO_LONG = (
+TOO_LONG = (
     "\n\nYour previous attempt ran past the space available and was cut off mid-sentence. "
     "Give the SAME answer in ABOUT HALF the length and make sure the final sentence is "
     "finished. Keep every fact that changes the answer; cut the elaboration, the examples "
@@ -224,10 +224,10 @@ class LLM:
             # onto the TAIL — appending to the cached block would change the prefix and
             # throw the cache away on every retry
             blocks[-1] = dict(blocks[-1])
-            blocks[-1]["text"] = (blocks[-1].get("text") or "") + _TOO_LONG
+            blocks[-1]["text"] = (blocks[-1].get("text") or "") + TOO_LONG
             retry["system"] = blocks
         else:
-            retry["system"] = (sysv or "") + _TOO_LONG
+            retry["system"] = (sysv or "") + TOO_LONG
         try:
             second = _create(self.client, retry)
         except anthropic.APIError:

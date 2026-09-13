@@ -389,6 +389,8 @@ async function ask(q) {
     const d = await post("/api/ask", { question: q, subject: state.subject });
     thinking.classList.remove("thinking");
     setBubble(thinking, d.answer);
+    // Two models can answer now — hover tells you which one did, and what it cost.
+    thinking.title = d.model + (d.cost ? ` · $${d.cost.toFixed(4)}` : " · free");
     if (d.truncated) {
       // It ran out of room even after the shorter-answer retry. Never leave this
       // implicit — a reply cut off mid-word reads as a complete thought if you don't

@@ -9,12 +9,14 @@ answer with no brief behind it is refused rather than improvised.
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 import re
 
 import pytest
 
 from backend import fetch, files, prompts
+from backend.llm import LLMError
 from backend.store import Store
 from backend.study import NoBrief, Study, _split_summary
 from tests.fakes import FakeLLM
@@ -696,3 +698,168 @@ def test_the_mode_rail_still_has_a_select_behind_it():
     js = (FRONTEND / "app.js").read_text()
     assert re.search(r'<select[^>]*\bid="mode"', html)
     assert 'dispatchEvent(new Event("change"))' in js
+
+
+# ============ a local model for the answering half ============
+# The vision model reads; a model of your own can answer. The closed world does not
+# care which adapter it hands the brief to — but the router must never hand an image
+# to the one that cannot see, and the two must be told apart from outside.
+from backend import local_llm
+from backend.local_llm import LocalLLM
+
+
+class _Resp:
+    def __init__(self, payload, status=200):
+        self.payload = json.dumps(payload).encode()
+    def read(self, *a): return self.payload
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def _serve(monkeypatch, replies):
+    """Stand in for the local server; records every request body it was sent."""
+    seen = []
+    replies = list(replies)
+    def fake_urlopen(req, timeout=None):
+        seen.append(json.loads(req.data.decode()))
+        seen[-1]["_headers"] = dict(req.header_items())
+        seen[-1]["_url"] = req.full_url
+        return _Resp(replies.pop(0))
+    monkeypatch.setattr(local_llm.urllib.request, "urlopen", fake_urlopen)
+    return seen
+
+
+def _chat(text, finish="stop", pt=100, ct=20):
+    return {"choices": [{"message": {"role": "assistant", "content": text},
+                         "finish_reason": finish}],
+            "usage": {"prompt_tokens": pt, "completion_tokens": ct}}
+
+
+@pytest.mark.parametrize("given, want", [
+    ("http://mini.local:11434", "http://mini.local:11434/v1/chat/completions"),
+    ("http://mini.local:11434/", "http://mini.local:11434/v1/chat/completions"),
+    ("https://llm.example.com/v1", "https://llm.example.com/v1/chat/completions"),
+    ("https://llm.example.com/v1/chat/completions", "https://llm.example.com/v1/chat/completions"),
+])
+def test_any_of_the_three_ways_people_paste_the_url_works(given, want):
+    assert local_llm.endpoint(given) == want
+
+
+def test_the_local_adapter_speaks_chat_completions(monkeypatch):
+    seen = _serve(monkeypatch, [_chat("Team costs $29.", pt=1200, ct=8)])
+    llm = LocalLLM("http://mini:11434", "s3cret", "qwen3:14b")
+    ans = llm.ask(user="What does Team cost?", cached_system="THE BRIEF: …",
+                  system="NOTE: stale", history=[{"question": "hi", "answer": "hello"}],
+                  max_tokens=500)
+    req = seen[0]
+    assert req["_url"].endswith("/v1/chat/completions")
+    assert req["_headers"]["Authorization"] == "Bearer s3cret"
+    assert req["model"] == "qwen3:14b" and req["max_tokens"] == 500
+    assert "tool" not in json.dumps(req), "no tool path on this side either"
+    roles = [m["role"] for m in req["messages"]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert "THE BRIEF" in req["messages"][0]["content"] and "stale" in req["messages"][0]["content"]
+    assert ans.text == "Team costs $29." and ans.model == "qwen3:14b"
+    assert ans.cost == 0.0 and ans.prompt_tokens == 1200 and not ans.truncated
+
+
+def test_a_local_model_that_thinks_out_loud_is_heard_only_for_its_answer(monkeypatch):
+    _serve(monkeypatch, [_chat("<think>\nlet me look… the brief says $29\n</think>\n\n$29/month.")])
+    ans = LocalLLM("http://mini:11434", "", "qwen3:14b").ask(user="cost?")
+    assert ans.text == "$29/month."
+
+
+def test_thinking_that_eats_the_whole_budget_is_a_clear_error_not_a_blank(monkeypatch):
+    """Sonnet's adaptive-thinking trap in a different costume: the reasoning is billed
+    out of the same max_tokens as the answer, so a small budget can come back as an
+    unfinished thought and nothing else."""
+    _serve(monkeypatch, [_chat("<think>\nhmm, first I should", finish="length")])
+    with pytest.raises(LLMError) as e:
+        LocalLLM("http://mini:11434", "", "qwen3:14b").ask(user="cost?", max_tokens=100)
+    assert "thinking" in str(e.value).lower() and "Turn thinking off" in str(e.value)
+
+
+def test_a_cut_off_local_answer_is_retried_shorter_in_the_same_budget(monkeypatch):
+    seen = _serve(monkeypatch, [_chat("Team is $29 and includes 2 TB and also", finish="length"),
+                                _chat("Team: $29, 2 TB.", finish="stop")])
+    ans = LocalLLM("http://mini:11434", "", "m").ask(user="cost?", system="RULES", max_tokens=60)
+    assert ans.text == "Team: $29, 2 TB." and not ans.truncated
+    assert len(seen) == 2
+    assert seen[1]["max_tokens"] == 60, "same budget — never a bigger one behind their back"
+    assert "ABOUT HALF" in seen[1]["messages"][0]["content"]
+
+
+def test_the_local_adapter_refuses_an_image():
+    """Reading a capture is the vision model's job whatever the routing says. An image
+    arriving here is a bug, and the right response is a loud one."""
+    with pytest.raises(LLMError) as e:
+        LocalLLM("http://mini:11434", "", "m").ask(user="read this", images=[IMG])
+    assert "routing bug" in str(e.value)
+
+
+def test_an_unreachable_local_model_says_where_it_looked(monkeypatch):
+    def down(req, timeout=None):
+        raise local_llm.urllib.error.URLError("Connection refused")
+    monkeypatch.setattr(local_llm.urllib.request, "urlopen", down)
+    with pytest.raises(LLMError) as e:
+        LocalLLM("http://mini:11434", "", "m").ask(user="x")
+    assert "http://mini:11434/v1/chat/completions" in str(e.value)
+    assert "Connection refused" in str(e.value)
+
+
+def test_a_wrong_key_or_model_gets_a_pointer_to_the_setting(monkeypatch):
+    import io
+    def denied(req, timeout=None):
+        raise local_llm.urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {},
+                                               io.BytesIO(b'{"error":"bad key"}'))
+    monkeypatch.setattr(local_llm.urllib.request, "urlopen", denied)
+    with pytest.raises(LLMError) as e:
+        LocalLLM("http://mini:11434", "nope", "m").ask(user="x")
+    assert "401" in str(e.value) and "LOCAL_LLM_KEY" in str(e.value)
+
+
+def test_half_a_local_config_fails_at_boot_not_at_the_first_question():
+    with pytest.raises(RuntimeError) as e:
+        LocalLLM("http://mini:11434", "", "")
+    assert "LOCAL_LLM_MODEL" in str(e.value)
+
+
+def test_answers_go_to_the_answer_model_and_reading_does_not():
+    """The split, end to end: capture on the vision model, ask on the other, and the
+    brief on the vision model unless asked otherwise."""
+    store = Store(":memory:")
+    eyes, voice = FakeLLM(), FakeLLM(answer_reply="from the local model")
+    study = Study(eyes, store, answer_llm=voice)
+    study.capture("Acme", IMG)
+    study.seal("Acme")
+    out = study.ask("what?", "Acme")
+    assert eyes.of_kind("read") and eyes.of_kind("brief"), "reading and compacting stay put"
+    assert not voice.of_kind("read") and not voice.of_kind("brief")
+    assert voice.of_kind("ask") and not eyes.of_kind("ask")
+    assert out["answer"] == "from the local model"
+    assert study.models() == {"read": "deep-model", "brief": "deep-model", "answer": "deep-model"}
+
+
+def test_briefs_move_to_the_local_model_only_when_asked():
+    store = Store(":memory:")
+    eyes, voice = FakeLLM(), FakeLLM(brief_reply="# compacted locally")
+    study = Study(eyes, store, answer_llm=voice, brief_llm=voice)
+    study.capture("Acme", IMG)
+    study.seal("Acme")
+    assert voice.of_kind("brief") and not eyes.of_kind("brief")
+    assert store.get_brief("Acme")["text"] == "# compacted locally"
+
+
+def test_the_answer_model_still_sees_only_the_brief_and_the_turns():
+    """Routing changes who answers, never what they answer from."""
+    store = Store(":memory:")
+    eyes, voice = FakeLLM(), FakeLLM()
+    study = Study(eyes, store, answer_llm=voice)
+    study.capture("Acme", IMG)
+    study.seal("Acme")
+    study.ask("first?", "Acme")
+    study.ask("second?", "Acme")
+    call = voice.of_kind("ask")[-1]
+    assert "THE BRIEF" in call["full_system"]
+    assert [t["question"] for t in call["history"]] == ["first?"]
+    assert not call["images"]

@@ -64,6 +64,15 @@ model can talk itself out of.
 - **Modes** — Answer, Quote (the source's exact words), Summary, Compare, Direct. Every
   one of them is closed-world; a mode changes tone, never sources.
 
+## Two models, if you want
+
+Reading a capture is the load-bearing call and stays on Claude's vision. Answering
+questions is text-only and happens over and over — so it can run on a model of your own
+(Ollama, LM Studio, anything speaking the OpenAI-style chat protocol) for nothing. Set
+`LOCAL_LLM_URL` and `LOCAL_LLM_MODEL`; see `DEPLOY.md`. Routing changes who answers,
+never what they answer from: the local model gets exactly the brief and the
+conversation, the same as Claude would, and a test asserts it.
+
 ## What it deliberately doesn't have
 
 No web search. No voice. No embeddings or vector store — the brief goes into context
