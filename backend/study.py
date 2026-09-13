@@ -293,6 +293,16 @@ class Study:
         if not subject:
             raise NoBrief("Nothing captured yet — share a window and bank a few captures.")
         b = self.store.get_brief(subject)
+        # A subject that is only your notes assembles its own brief on demand, because
+        # that costs nothing, loses nothing and sends nothing anywhere — there is no
+        # reason to make you press a button for it, and a stale one is simply rebuilt.
+        # The closed world is unchanged: the brief is still the only source; it is just
+        # never out of date when it is a pure function of the notes.
+        if b is None or self.store.get_state(f"stale:{subject}"):
+            shots = self.store.shots(subject)
+            if shots and all(s.get("kind") == "note" for s in shots):
+                self._seal_verbatim(subject, shots)
+                b = self.store.get_brief(subject)
         if not b:
             n = self.store.shot_count(subject)
             raise NoBrief(
