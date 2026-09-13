@@ -50,7 +50,10 @@ CREATE TABLE IF NOT EXISTS turns (
     subject_id INTEGER REFERENCES subjects(id),
     ts         REAL NOT NULL,
     question   TEXT NOT NULL,
-    answer     TEXT
+    answer     TEXT,
+    model      TEXT,            -- which model answered; two can, now
+    cost       REAL,
+    seconds    REAL
 );
 CREATE INDEX IF NOT EXISTS idx_turns_subject_ts ON turns(subject_id, ts);
 CREATE TABLE IF NOT EXISTS usage (
@@ -89,7 +92,10 @@ class Store:
         table alone, so new columns need adding by hand.
         """
         for table, column, decl in (("shots", "edited", "REAL"),
-                                    ("briefs", "edited", "REAL")):
+                                    ("briefs", "edited", "REAL"),
+                                    ("turns", "model", "TEXT"),
+                                    ("turns", "cost", "REAL"),
+                                    ("turns", "seconds", "REAL")):
             have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in have:
                 self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
@@ -311,13 +317,16 @@ class Store:
 
     # --- the conversation about a subject -----------------------------------------
     def add_turn(self, subject: str, question: str, answer: str,
-                 now: float | None = None) -> None:
+                 now: float | None = None, model: str = "", cost: float = 0.0,
+                 seconds: float = 0.0) -> None:
         now = time.time() if now is None else now
         with self._lock:
             sid = self._get_or_create(subject, now)
             self._conn.execute(
-                "INSERT INTO turns (subject_id, ts, question, answer) VALUES (?, ?, ?, ?)",
-                (sid, now, question, answer))
+                "INSERT INTO turns (subject_id, ts, question, answer, model, cost, seconds)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (sid, now, question, answer, model or None, float(cost or 0.0),
+                 float(seconds or 0.0)))
             self._conn.commit()
 
     def turns(self, subject: str, limit: int = 200) -> list[dict]:
@@ -326,7 +335,8 @@ class Store:
             if sid is None:
                 return []
             rows = self._conn.execute(
-                "SELECT ts, question, answer FROM turns WHERE subject_id = ?"
+                "SELECT ts, question, answer, model, cost, seconds FROM turns"
+                " WHERE subject_id = ?"
                 " ORDER BY ts DESC LIMIT ?", (sid, limit)).fetchall()
         return [dict(r) for r in reversed(rows)]
 

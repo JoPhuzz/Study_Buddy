@@ -380,6 +380,17 @@ function addBubble(cls, text) {
 }
 function setBubble(node, text) { node.innerHTML = md(text); }
 
+// Two models can answer now, so every answer says which one did — and what it cost and
+// how long it took, since those are the two things that differ between them. Sits
+// under the text, small, on every answer including ones reloaded from history.
+function stamp(node, t) {
+  if (!t || !t.model) return;
+  const bits = [t.model];
+  bits.push(t.cost ? "$" + Number(t.cost).toFixed(4) : "free");
+  if (t.seconds) bits.push(Number(t.seconds).toFixed(1) + "s");
+  node.appendChild(el("div", "bubble-meta", bits.join(" · ")));
+}
+
 async function ask(q) {
   addBubble("me", q);
   const thinking = addBubble("buddy thinking", "reading the brief");
@@ -389,8 +400,7 @@ async function ask(q) {
     const d = await post("/api/ask", { question: q, subject: state.subject });
     thinking.classList.remove("thinking");
     setBubble(thinking, d.answer);
-    // Two models can answer now — hover tells you which one did, and what it cost.
-    thinking.title = d.model + (d.cost ? ` · $${d.cost.toFixed(4)}` : " · free");
+    stamp(thinking, d);
     if (d.truncated) {
       // It ran out of room even after the shorter-answer retry. Never leave this
       // implicit — a reply cut off mid-word reads as a complete thought if you don't
@@ -416,7 +426,10 @@ async function loadTurns() {
     const d = await api("/api/turns?subject=" + encodeURIComponent(state.subject));
     if (!d.turns.length) return;
     chat.innerHTML = "";
-    d.turns.forEach((t) => { addBubble("me", t.question); addBubble("buddy", t.answer || ""); });
+    d.turns.forEach((t) => {
+      addBubble("me", t.question);
+      stamp(addBubble("buddy", t.answer || ""), t);
+    });
   } catch (e) {}
 }
 

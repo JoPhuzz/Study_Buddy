@@ -863,3 +863,39 @@ def test_the_answer_model_still_sees_only_the_brief_and_the_turns():
     assert "THE BRIEF" in call["full_system"]
     assert [t["question"] for t in call["history"]] == ["first?"]
     assert not call["images"]
+
+
+def test_each_answer_remembers_which_model_gave_it():
+    """Two models can answer now. Which one did is part of the answer, and it has to
+    survive a reload — a hover tooltip on the live bubble is not a record."""
+    store = Store(":memory:")
+    eyes, voice = FakeLLM(), FakeLLM()
+    voice.deep_model = "qwen3.5-40k"
+    study = Study(eyes, store, answer_llm=voice)
+    study.capture("Acme", IMG)
+    study.seal("Acme")
+    out = study.ask("what?", "Acme")
+    assert out["model"] == "qwen3.5-40k" and "seconds" in out
+    turn = store.turns("Acme")[-1]
+    assert turn["model"] == "qwen3.5-40k"
+    assert turn["cost"] == 0.001 and turn["seconds"] >= 0
+
+
+def test_an_older_brain_gains_the_turn_columns(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.db"
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE subjects (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+                               created REAL NOT NULL, last_seen REAL NOT NULL);
+        CREATE TABLE turns (id INTEGER PRIMARY KEY, subject_id INTEGER, ts REAL NOT NULL,
+                            question TEXT NOT NULL, answer TEXT);
+        INSERT INTO subjects VALUES (1, 'Old', 1.0, 1.0);
+        INSERT INTO turns (subject_id, ts, question, answer) VALUES (1, 2.0, 'q', 'a');
+    """)
+    con.commit(); con.close()
+    store = Store(str(db))
+    old = store.turns("Old")[0]
+    assert old["question"] == "q" and old["model"] is None, "old turns simply have no model"
+    store.add_turn("Old", "q2", "a2", model="claude-sonnet-5", cost=0.002, seconds=3.1)
+    assert store.turns("Old")[-1]["model"] == "claude-sonnet-5"
