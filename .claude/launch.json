@@ -9,7 +9,7 @@
         "import os,runpy\nfor l in open(os.path.expanduser('~/Developer/gaming-buddy/.env')):\n    k,_,v=l.strip().partition('=')\n    if k in ('ANTHROPIC_API_KEY','DEEP_MODEL','FAST_MODEL'): os.environ.setdefault(k,v)\nos.environ.setdefault('HOST','127.0.0.1'); os.environ.setdefault('DATA_DIR','webdata')\nrunpy.run_module('backend.main',run_name='__main__')\n"
       ],
       "port": 8092,
-      "autoPort": true
+      "autoPort": false
     }
   ]
 }
