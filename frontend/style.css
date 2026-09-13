@@ -447,6 +447,11 @@ body.busy .dot { animation: breathe 1s ease-in-out infinite; }
   -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass);
 }
 .bubble.thinking { color: var(--ink-faint); display: flex; align-items: center; gap: 10px; }
+.bubble-meta {
+  margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line-soft);
+  font-size: 10px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-faint); white-space: normal;
+}
 .bubble.err { border-color: rgba(255,122,107,.45); color: var(--bad); background: rgba(255,122,107,.07); }
 
 /* Three cells reading in turn. */

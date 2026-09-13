@@ -17,6 +17,7 @@ brief. If you are extending this, that is the invariant to protect.
 from __future__ import annotations
 
 import re
+import time
 
 from . import prompts
 from .llm import LLM, Answer, LLMError
@@ -282,11 +283,16 @@ class Study:
 
         history = self.store.turns(subject)[-MAX_HISTORY_TURNS:]
         llm = self.answer_llm
+        t0 = time.time()
         ans = llm.ask(user=question, cached_system=cached, system=tail,
                       history=history, model=llm.deep_model,
                       max_tokens=mode.max_tokens)
+        seconds = round(time.time() - t0, 1)
         self._log("ask", ans)
-        self.store.add_turn(subject, question, ans.text)
+        # Which model answered is part of the answer now that two can. It is stored
+        # with the turn so it survives a reload, not just shown once and forgotten.
+        self.store.add_turn(subject, question, ans.text, model=ans.model, cost=ans.cost,
+                            seconds=seconds)
         return {"subject": subject, "answer": ans.text, "model": ans.model,
-                "cost": ans.cost, "mode": mode.name,
+                "cost": ans.cost, "seconds": seconds, "mode": mode.name,
                 "cached": bool(ans.cache_read), "truncated": ans.truncated}
