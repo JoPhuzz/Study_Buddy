@@ -45,12 +45,33 @@ def _split_summary(note: str) -> tuple[str, str]:
 
 
 class Study:
+    """Three jobs, and each can be given its own model.
+
+    `llm` reads captures — the vision model, and the one call whose quality everything
+    downstream inherits. `answer_llm` answers questions from the brief; `brief_llm`
+    compacts captures into it. Either defaults to `llm`. The split exists so the
+    answering half — many calls, text only, over material already captured — can run
+    on a local model for nothing, while reading stays where the eyes are good.
+
+    The closed world is untouched by this: which model answers changes nothing about
+    what it is allowed to answer FROM. ask() still builds its context from exactly the
+    brief and the prior turns, whichever adapter it hands them to.
+    """
+
     def __init__(self, llm: LLM, store: Store, app_name: str = "Study Buddy",
-                 read_model: str | None = None) -> None:
+                 read_model: str | None = None, answer_llm=None, brief_llm=None) -> None:
         self.llm = llm
+        self.answer_llm = answer_llm or llm
+        self.brief_llm = brief_llm or llm
         self.store = store
         self.app_name = app_name
         self.read_model = read_model or llm.deep_model
+
+    def models(self) -> dict:
+        """Which model is on which job — for /api/health, so a wrong routing is visible
+        from outside rather than discovered from a bill."""
+        return {"read": self.read_model, "brief": self.brief_llm.deep_model,
+                "answer": self.answer_llm.deep_model}
 
     # --- helpers -------------------------------------------------------------------
     def _log(self, kind: str, ans: Answer) -> None:
@@ -195,9 +216,10 @@ class Study:
             user = (f"SUBJECT: {subject}\n\nEXISTING BRIEF:\n\n{existing['text']}"
                     f"\n\n\nNOTES FROM CAPTURES SINCE:\n\n{notes}")
 
-        ans = self.llm.ask(user=user, cached_system=prompts.BRIEF,
-                           system=system[len(prompts.BRIEF):],
-                           model=self.llm.deep_model, max_tokens=BRIEF_MAX_TOKENS)
+        llm = self.brief_llm
+        ans = llm.ask(user=user, cached_system=prompts.BRIEF,
+                      system=system[len(prompts.BRIEF):],
+                      model=llm.deep_model, max_tokens=BRIEF_MAX_TOKENS)
         self._log("brief", ans)
         self.store.save_brief(subject, ans.text, len(shots))
         self.store.set_state(f"stale:{subject}", "")
@@ -259,9 +281,10 @@ class Study:
                         "to fold them in.")
 
         history = self.store.turns(subject)[-MAX_HISTORY_TURNS:]
-        ans = self.llm.ask(user=question, cached_system=cached, system=tail,
-                           history=history, model=self.llm.deep_model,
-                           max_tokens=mode.max_tokens)
+        llm = self.answer_llm
+        ans = llm.ask(user=question, cached_system=cached, system=tail,
+                      history=history, model=llm.deep_model,
+                      max_tokens=mode.max_tokens)
         self._log("ask", ans)
         self.store.add_turn(subject, question, ans.text)
         return {"subject": subject, "answer": ans.text, "model": ans.model,

@@ -38,6 +38,18 @@ class Config:
     fast_model: str = _get("FAST_MODEL", "") or "claude-haiku-4-5"
     read_tier: str = (_get("READ_TIER", "deep") or "deep").lower()
 
+    # A local model for the answering half. Any server speaking the OpenAI-style
+    # chat-completions protocol (Ollama, LM Studio, llama.cpp, vLLM). URL and MODEL
+    # switch it on; the key is whatever the server or its tunnel wants, or empty.
+    # Reading captures NEVER moves here — that is the vision model's job whatever this
+    # says. Briefs stay on the vision model too unless LOCAL_BRIEFS=1: compaction is
+    # the one text job where a weaker model silently costs you detail for every answer
+    # after, and it happens once per subject rather than once per question.
+    local_llm_url: str = _get("LOCAL_LLM_URL")
+    local_llm_key: str = _get("LOCAL_LLM_KEY")
+    local_llm_model: str = _get("LOCAL_LLM_MODEL")
+    local_briefs: bool = _get("LOCAL_BRIEFS", "").lower() in ("1", "true", "yes", "on")
+
     # Data — the working copy of the brain.
     data_dir: str = _get("DATA_DIR", "webdata")
     db_path: str = _get("DB_PATH", "") or os.path.join(_get("DATA_DIR", "webdata"), "study.db")
@@ -58,6 +70,11 @@ class Config:
 
     def read_model(self) -> str:
         return self.fast_model if self.read_tier == "fast" else self.deep_model
+
+    def local_llm_wanted(self) -> bool:
+        """Either half set means they meant to set it up; a half-set one should fail
+        loudly at boot rather than quietly answer from Anthropic."""
+        return bool(self.local_llm_url or self.local_llm_model)
 
 
 config = Config()

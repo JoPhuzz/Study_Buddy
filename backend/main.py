@@ -17,10 +17,12 @@ import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from . import fetch, files, modes, sync
 from .config import config
 from .llm import LLM, LLMError
+from .local_llm import LocalLLM
 from .store import Store
 from .study import NoBrief, Study
 
@@ -60,8 +62,13 @@ def _open_store() -> None:
     try:
         _store = Store(config.db_path)
         llm = LLM(config.anthropic_api_key, config.deep_model, config.fast_model)
+        local = None
+        if config.local_llm_wanted():
+            local = LocalLLM(config.local_llm_url, config.local_llm_key,
+                             config.local_llm_model)
         _study = Study(llm, _store, app_name=config.app_name,
-                       read_model=config.read_model())
+                       read_model=config.read_model(), answer_llm=local,
+                       brief_llm=local if config.local_briefs else None)
         _err = ""
     except Exception as e:  # noqa: BLE001
         _study, _err = None, f"{type(e).__name__}: {e}"
@@ -203,6 +210,9 @@ def health():
             "config": {"deep_model": config.deep_model, "fast_model": config.fast_model,
                        "read_tier": config.read_tier,
                        "anthropic_key_set": bool(config.anthropic_api_key),
+                       "local_llm_set": bool(config.local_llm_url and config.local_llm_model),
+                       "local_llm_url": config.local_llm_url,
+                       "models": _study.models() if _study else None,
                        "access_password_set": bool(config.access_password),
                        "knowledge_token_set": bool(config.knowledge_token),
                        "knowledge_subpath": config.knowledge_subpath,
@@ -229,7 +239,8 @@ async def capture(request: Request):
                             status_code=400)
     t0 = time.time()
     try:
-        out = engine().capture(body.get("subject"), image, label=body.get("label") or "")
+        out = await run_in_threadpool(engine().capture, body.get("subject"), image,
+                                      label=body.get("label") or "")
     except (LLMError, ValueError) as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
     except Exception as e:  # noqa: BLE001
@@ -350,7 +361,7 @@ async def seal(request: Request):
     body = await request.json() if await request.body() else {}
     t0 = time.time()
     try:
-        out = engine().seal(body.get("subject"))
+        out = await run_in_threadpool(engine().seal, body.get("subject"))
     except ValueError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
     except LLMError as e:
@@ -366,7 +377,8 @@ async def ask(request: Request):
     body = await request.json()
     t0 = time.time()
     try:
-        out = engine().ask(body.get("question") or "", body.get("subject"))
+        out = await run_in_threadpool(engine().ask, body.get("question") or "",
+                                      body.get("subject"))
     except NoBrief as e:
         return JSONResponse({"ok": False, "error": str(e), "no_brief": True},
                             status_code=409)
