@@ -1073,3 +1073,22 @@ def test_a_failing_vacuum_never_blocks_the_backup(monkeypatch, tmp_path):
     monkeypatch.setattr(sync, "enabled", lambda: True)
     monkeypatch.setattr(sync, "push", lambda *a, **k: "sha")
     assert s.push_now()["ok"] is True
+
+
+def test_the_open_health_endpoint_carries_nothing_personal():
+    """/api/health has no password in front of it on purpose, so "is my fix live?" is
+    answerable from outside. That makes it the one place where a convenience field is
+    published to the whole internet — this one carried the owner's own machine's
+    hostname. Booleans and model names, never an address."""
+    from backend import main
+    from fastapi.testclient import TestClient
+    import json
+    body = json.dumps(main.health())
+    assert "local_llm_set" in body, "whether it is configured is the useful part"
+    for secret in ("tail", ".ts.net", "ngrok", "trycloudflare", "http://", "https://"):
+        assert secret not in body, f"an address or host leaked into open health: {secret}"
+    for leaky in ("api_key", "token", "password"):
+        for k, v in json.loads(body)["config"].items():
+            if leaky in k:
+                assert isinstance(v, bool), \
+                    f"{k} must report only whether it is set, not its value"

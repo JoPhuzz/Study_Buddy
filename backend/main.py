@@ -212,7 +212,6 @@ def health():
                        "read_tier": config.read_tier,
                        "anthropic_key_set": bool(config.anthropic_api_key),
                        "local_llm_set": bool(config.local_llm_url and config.local_llm_model),
-                       "local_llm_url": config.local_llm_url,
                        "models": _study.models() if _study else None,
                        "access_password_set": bool(config.access_password),
                        "knowledge_token_set": bool(config.knowledge_token),
