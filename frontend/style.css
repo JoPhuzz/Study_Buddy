@@ -494,6 +494,18 @@ body.busy .dot { animation: breathe 1s ease-in-out infinite; }
 .lib-row + .lib-row { box-shadow: 0 -1px 0 var(--line-soft); }
 .lib-row > div:first-child { flex: 1 1 auto; min-width: 0; }
 .lib-name { font-weight: 600; overflow-wrap: anywhere; letter-spacing: -.01em; }
+
+/* The one destructive control in the app. Set apart, in the one colour nothing else
+   uses, at the foot of the list rather than beside a row you might mis-click. */
+.danger-zone {
+  margin-top: 28px; padding: 18px; border-radius: var(--r);
+  border: 1px solid rgba(255,122,107,.3); background: rgba(255,122,107,.05);
+}
+.danger-zone .micro { color: var(--bad); }
+.danger-zone .hint { margin: 8px 0 14px; text-align: left; max-width: 62ch; }
+.danger-btn { color: var(--bad); border-color: rgba(255,122,107,.45); }
+.danger-btn:hover { color: #fff; background: rgba(255,122,107,.22); border-color: var(--bad); }
+.danger-btn:disabled { opacity: .6; cursor: not-allowed; }
 .lib-row .hint { margin: 3px 0 0; text-align: left; font-size: 13px; }
 
 /* ============================ toast ============================ */

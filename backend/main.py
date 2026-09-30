@@ -69,6 +69,7 @@ def _open_store() -> None:
         _study = Study(llm, _store, app_name=config.app_name,
                        read_model=config.read_model(), answer_llm=local,
                        brief_llm=local if config.local_briefs else None)
+        _sync._vacuum = _store.vacuum      # so the pushed file never carries deleted rows
         _err = ""
     except Exception as e:  # noqa: BLE001
         _study, _err = None, f"{type(e).__name__}: {e}"
@@ -449,7 +450,31 @@ async def delete_subject(request: Request):
     ok = eng.store.delete_subject(name)
     if ok and (eng.store.current_subject() or "").lower() == name.lower():
         eng.store.set_state("current_subject", "")
+    if ok:
+        eng.store.vacuum()          # gone from the FILE, not just from the query
     return {"ok": ok}
+
+
+@app.post("/api/wipe")
+async def wipe(request: Request):
+    """Erase everything: every subject, capture, note, brief and question.
+
+    Deliberately awkward — it takes a typed confirmation, because there is no undo and
+    the next sync push makes it permanent in the repo too.
+    """
+    body = await request.json() if await request.body() else {}
+    if (body.get("confirm") or "").strip().upper() != "ERASE EVERYTHING":
+        return JSONResponse({"ok": False, "error": "Not confirmed."}, status_code=400)
+    eng = engine()
+    n = 0
+    for s in eng.store.subjects():
+        if eng.store.delete_subject(s["name"]):
+            n += 1
+    eng.store.set_state("current_subject", "")
+    eng.store.wipe_usage()
+    eng.store.vacuum()
+    print(f"[wipe] {n} subject(s) erased")
+    return {"ok": True, "erased": n}
 
 
 @app.get("/api/shots")
@@ -509,6 +534,8 @@ def drop_shot(shot_id: int):
     subject = eng.store.current_subject()
     if ok and subject:
         eng.store.set_state(f"stale:{subject}", "1")
+    if ok:
+        eng.store.vacuum()
     return {"ok": ok}
 
 
@@ -530,7 +557,9 @@ async def clear_turns(request: Request):
     body = await request.json() if await request.body() else {}
     eng = engine()
     subject = (body.get("subject") or "").strip() or eng.store.current_subject() or ""
-    return {"ok": True, "cleared": eng.store.clear_turns(subject)}
+    n = eng.store.clear_turns(subject)
+    eng.store.vacuum()
+    return {"ok": True, "cleared": n}
 
 
 @app.get("/api/mode")

@@ -146,6 +146,8 @@ def push(archive: bytes, message: str = "study-web: brain sync",
 class BrainSync:
     """Pull at boot, mark dirty on writes, debounce-push in the background."""
 
+    _vacuum = None          # set by main once the store exists; see push_now()
+
     def __init__(self, data_dir: str, interval: int) -> None:
         self.data_dir = data_dir
         self.interval = max(0, int(interval))
@@ -177,6 +179,15 @@ class BrainSync:
             if not (self._dirty or force):
                 return {"ok": True, "skipped": "nothing changed"}
         try:
+            # Vacuum immediately before packing. This is the moment the brain leaves the
+            # machine, so it is the moment that must not carry deleted rows with it: a
+            # DELETE alone leaves the old bytes in the file's free pages, and the file is
+            # what gets committed to a git repo — where it is then permanent.
+            if self._vacuum is not None:
+                try:
+                    self._vacuum()
+                except Exception:
+                    pass          # a failed vacuum must never block the backup itself
             sha = push(pack(self.data_dir), base_sha=self._base_sha)
             with self._lock:
                 self._dirty = False

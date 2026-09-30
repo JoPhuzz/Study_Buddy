@@ -78,6 +78,9 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        # Zero freed pages instead of leaving the old bytes lying in the file. Costs a
+        # little write throughput; buys that a delete is a delete.
+        self._conn.execute("PRAGMA secure_delete = ON")
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
@@ -99,6 +102,30 @@ class Store:
             have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in have:
                 self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+    def wipe_usage(self) -> int:
+        """Drop the per-call accounting too. It holds no content — model, tokens, cost —
+        but it is still a record of when someone was asking and how much they asked."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM usage")
+            self._conn.commit()
+        return cur.rowcount
+
+    def vacuum(self) -> None:
+        """Rewrite the file so deleted rows are actually GONE from it.
+
+        A DELETE in SQLite unlinks the row; the bytes stay in free pages until something
+        reuses them. Measured, not assumed: a note deleted with delete_subject() was
+        still findable four times over in the raw .db file afterwards, and zero times
+        after this. Since that file is tarred up and pushed to a git repo, "deleted" has
+        to mean deleted from the FILE, not just from the query.
+
+        secure_delete makes SQLite zero freed pages as it goes, so the window between a
+        delete and the next vacuum is narrow too.
+        """
+        with self._lock:
+            self._conn.execute("VACUUM")
+            self._conn.commit()
 
     def close(self) -> None:
         with self._lock:

@@ -591,7 +591,10 @@ async function showBrief() {
 async function showLibrary() {
   const d = await api("/api/subjects");
   sheet("Library", (body) => {
-    if (!d.subjects.length) { body.appendChild(el("p", "hint", "Nothing studied yet.")); return; }
+    if (!d.subjects.length) {
+      body.appendChild(el("p", "hint", "Nothing studied yet."));
+      return;
+    }
     d.subjects.forEach((s) => {
       const row = el("div", "lib-row");
       const left = el("div");
@@ -621,7 +624,42 @@ async function showLibrary() {
       row.appendChild(del);
       body.appendChild(row);
     });
+    eraseAll(body, d.subjects.length);
   });
+}
+
+// The whole brain, gone. Typed confirmation rather than a click, because there is no
+// undo and the next sync push writes the emptiness to the repo as well.
+function eraseAll(body, n) {
+  const zone = el("div", "danger-zone");
+  zone.appendChild(el("div", "micro", "Erase everything"));
+  zone.appendChild(el("p", "hint",
+    `Permanently erases all ${n} subject${n === 1 ? "" : "s"} — every capture, note, `
+    + "brief and question — from the database file itself, not just from this list. "
+    + "There is no undo."));
+  const btn = el("button", "ghost danger-btn", "Erase everything…");
+  btn.addEventListener("click", async () => {
+    const typed = prompt('This cannot be undone.\n\nType ERASE EVERYTHING to confirm:');
+    if ((typed || "").trim().toUpperCase() !== "ERASE EVERYTHING") {
+      if (typed !== null) toast("Not erased — the confirmation didn't match.", "bad");
+      return;
+    }
+    btn.disabled = true; btn.textContent = "Erasing…";
+    try {
+      const r = await post("/api/wipe", { confirm: "ERASE EVERYTHING" });
+      $("sheet").classList.add("hidden");
+      state.subject = null; state.shots = []; state.sealed = false; state.stale = false;
+      chat.innerHTML = "";
+      showCapture();
+      render();
+      toast(`${r.erased} subject(s) erased. The file has been rewritten.`, "good");
+    } catch (e) {
+      toast(e.message, "bad");
+      btn.disabled = false; btn.textContent = "Erase everything…";
+    }
+  });
+  zone.appendChild(btn);
+  body.appendChild(zone);
 }
 
 // ===== files: drop or pick =====
@@ -701,6 +739,22 @@ $("captureBtn").addEventListener("click", bank);
 $("doneBtn").addEventListener("click", seal);
 $("backToCapture").addEventListener("click", showCapture);
 $("askBtn").addEventListener("click", async () => { showAsk(); await loadTurns(); });
+
+// Erasing has to be reachable, or "you can delete it" is a claim rather than a feature.
+$("forgetBtn").addEventListener("click", async () => {
+  if (!state.subject) return;
+  const n = chat.querySelectorAll(".bubble.me").length;
+  if (!n) { toast("No questions to forget.", "good"); return; }
+  if (!confirm(`Forget all ${n} question${n === 1 ? "" : "s"} for "${state.subject}"?\n\n`
+             + "The captures and the brief stay. This erases the questions and answers "
+             + "from the file itself, not just from the list.")) return;
+  try {
+    const d = await post("/api/turns/clear", { subject: state.subject });
+    chat.innerHTML = "";
+    addBubble("buddy", "Forgotten. Ask me something new.").classList.add("thinking");
+    toast(`${d.cleared} question(s) erased.`, "good");
+  } catch (e) { toast(e.message, "bad"); }
+});
 $("briefBtn").addEventListener("click", () => showBrief().catch((e) => toast(e.message, "bad")));
 $("libraryBtn").addEventListener("click", () => showLibrary().catch((e) => toast(e.message, "bad")));
 

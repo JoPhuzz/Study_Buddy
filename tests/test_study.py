@@ -996,3 +996,80 @@ def test_a_captured_page_still_needs_done_before_questions():
     with pytest.raises(NoBrief) as e:
         study.ask("cost?", "Acme")
     assert "Press Done" in str(e.value)
+
+
+# ============ a delete has to be a delete ============
+# The brain is tarred up and committed to a git repo, so "deleted" must mean deleted
+# from the FILE. A DELETE alone leaves the bytes in SQLite's free pages — measured, not
+# assumed — and once that file is committed, the old bytes are permanent.
+SECRET = "ZXQVT-private-thought-92142"
+
+
+def test_deleting_a_subject_erases_it_from_the_file_not_just_the_table(tmp_path):
+    db = tmp_path / "brain.db"
+    store = Store(str(db))
+    store.add_shot("Private", note=f"WRITTEN BY YOU\nTITLE: t\n\n{SECRET}",
+                   summary="t", kind="note")
+    store.add_turn("Private", f"q about {SECRET}", f"a about {SECRET}")
+    store.save_brief("Private", f"brief with {SECRET}", 1)
+    assert SECRET.encode() in db.read_bytes(), "precondition: it is in there"
+
+    store.delete_subject("Private")
+    store.vacuum()
+    assert SECRET.encode() not in db.read_bytes(), \
+        "a deleted note must not survive in the file that gets pushed to a git repo"
+
+
+def test_binning_one_capture_erases_it_too(tmp_path):
+    db = tmp_path / "brain.db"
+    store = Store(str(db))
+    store.add_shot("S", note=f"keep me", summary="a")
+    seq = store.add_shot("S", note=f"{SECRET}", summary="b")
+    shot = [s for s in store.shots("S") if s["seq"] == seq][0]
+    store.drop_shot(shot["id"])
+    store.vacuum()
+    raw = db.read_bytes()
+    assert SECRET.encode() not in raw
+    assert b"keep me" in raw, "the others are untouched"
+
+
+def test_clearing_a_conversation_erases_the_questions(tmp_path):
+    db = tmp_path / "brain.db"
+    store = Store(str(db))
+    store.add_turn("S", f"question mentioning {SECRET}", "an answer")
+    assert store.clear_turns("S") == 1
+    store.vacuum()
+    assert SECRET.encode() not in db.read_bytes()
+
+
+def test_usage_accounting_can_be_wiped_too(tmp_path):
+    store = Store(str(tmp_path / "b.db"))
+    store.log_usage("ask", "m", 10, 5, cost=0.001)
+    assert store.usage_summary()["total"]["calls"] == 1
+    assert store.wipe_usage() == 1
+    assert store.usage_summary()["total"]["calls"] == 0
+
+
+def test_the_brain_is_vacuumed_before_it_leaves_the_machine(monkeypatch, tmp_path):
+    """The push is the moment data leaves; that is the moment it must be clean."""
+    from backend import sync
+    calls = []
+    s = sync.BrainSync(str(tmp_path), 600)
+    s._vacuum = lambda: calls.append("vacuumed")
+    s._dirty = True
+    monkeypatch.setattr(sync, "enabled", lambda: True)
+    monkeypatch.setattr(sync, "push", lambda *a, **k: (calls.append("pushed"), "sha")[1])
+    s.push_now()
+    assert calls == ["vacuumed", "pushed"], "vacuum first, then push — never the reverse"
+
+
+def test_a_failing_vacuum_never_blocks_the_backup(monkeypatch, tmp_path):
+    """Losing the brain is worse than a late erase."""
+    from backend import sync
+    def boom(): raise RuntimeError("locked")
+    s = sync.BrainSync(str(tmp_path), 600)
+    s._vacuum = boom
+    s._dirty = True
+    monkeypatch.setattr(sync, "enabled", lambda: True)
+    monkeypatch.setattr(sync, "push", lambda *a, **k: "sha")
+    assert s.push_now()["ok"] is True
